@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import styles from './dashboard.module.css';
 
 /**
@@ -41,6 +41,62 @@ export default function DashboardPage() {
   const [filterSegment, setFilterSegment] = useState<'all' | 'incomplete' | 'complete'>('all');
   const [displayLimit, setDisplayLimit] = useState<5 | 10 | 'all'>(5);
   const [isSortMenuOpen, setIsSortMenuOpen] = useState(false);
+
+  // 列幅リサイズ機能
+  const [columnWidths, setColumnWidths] = useState([40, 22, 19, 19]); // %単位
+  const resizingRef = useRef<{ index: number; startX: number; startWidths: number[] } | null>(null);
+  const tableRef = useRef<HTMLTableElement>(null);
+
+  const handleResizeStart = useCallback((index: number, e: React.MouseEvent) => {
+    e.preventDefault();
+    resizingRef.current = {
+      index,
+      startX: e.clientX,
+      startWidths: [...columnWidths],
+    };
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }, [columnWidths]);
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!resizingRef.current || !tableRef.current) return;
+
+      const { index, startX, startWidths } = resizingRef.current;
+      const tableWidth = tableRef.current.offsetWidth;
+      const deltaX = e.clientX - startX;
+      const deltaPercent = (deltaX / tableWidth) * 100;
+
+      const newWidths = [...startWidths];
+      const minWidth = 10;
+
+      // 現在の列を広げて、次の列を縮める
+      const newCurrentWidth = startWidths[index] + deltaPercent;
+      const newNextWidth = startWidths[index + 1] - deltaPercent;
+
+      if (newCurrentWidth >= minWidth && newNextWidth >= minWidth) {
+        newWidths[index] = newCurrentWidth;
+        newWidths[index + 1] = newNextWidth;
+        setColumnWidths(newWidths);
+      }
+    };
+
+    const handleMouseUp = () => {
+      if (resizingRef.current) {
+        resizingRef.current = null;
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      }
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, []);
 
   const activeProject = MOCK_PROJECTS.find(p => p.id === activeProjectId);
   const progressPercent = Math.round((MOCK_STATS.ok + MOCK_STATS.ng) / MOCK_STATS.total * 100);
@@ -278,13 +334,31 @@ export default function DashboardPage() {
               </div>
 
               {displayedFiles.length > 0 ? (
-                <table className={styles.filesTable}>
+                <table className={styles.filesTable} ref={tableRef}>
                   <thead>
                     <tr>
-                      <th style={{ width: '40%' }}>ファイル名</th>
-                      <th style={{ width: '22%' }}>進捗</th>
-                      <th style={{ width: '19%' }}>最終更新</th>
-                      <th style={{ width: '19%' }}>最終更新者</th>
+                      <th style={{ width: `${columnWidths[0]}%` }}>
+                        ファイル名
+                        <div
+                          className={styles.resizeHandle}
+                          onMouseDown={(e) => handleResizeStart(0, e)}
+                        />
+                      </th>
+                      <th style={{ width: `${columnWidths[1]}%` }}>
+                        進捗
+                        <div
+                          className={styles.resizeHandle}
+                          onMouseDown={(e) => handleResizeStart(1, e)}
+                        />
+                      </th>
+                      <th style={{ width: `${columnWidths[2]}%` }}>
+                        最終更新
+                        <div
+                          className={styles.resizeHandle}
+                          onMouseDown={(e) => handleResizeStart(2, e)}
+                        />
+                      </th>
+                      <th style={{ width: `${columnWidths[3]}%` }}>最終更新者</th>
                     </tr>
                   </thead>
                   <tbody>

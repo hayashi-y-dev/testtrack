@@ -575,6 +575,22 @@
   font-weight: 500;
   padding: 0 4px 10px;
   border-bottom: 1px solid var(--border-soft);
+  position: relative;
+}
+
+.resizeHandle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 4px;
+  height: 100%;
+  cursor: col-resize;
+  background: transparent;
+  transition: background 0.12s ease;
+}
+
+.resizeHandle:hover {
+  background: var(--accent);
 }
 
 .filesTable tbody td {
