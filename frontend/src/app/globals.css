@@ -1,0 +1,24 @@
+@import "tailwindcss";
+
+/**
+ * グローバルスタイル
+ * TestTrack全体で共通のベーススタイルを定義
+ */
+
+:root {
+  --background: #F6F7F9;
+  --foreground: #1B2130;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-body), 'Noto Sans JP', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
