@@ -1,0 +1,603 @@
+/**
+ * 管理者ダッシュボードのスタイル
+ * HTMLモック (docs/mockups/05_admin_dashboard.html) のデザインを再現
+ * 仕様書4-10のビジュアルデザイン方針に準拠
+ */
+
+/* ===== CSS変数（デザイントークン） ===== */
+.wrap {
+  --bg: #F6F7F9;
+  --surface: #FFFFFF;
+  --surface-2: #F0F2F5;
+  --border: #E2E5EA;
+  --border-soft: #EAECF0;
+  --text: #1B2130;
+  --text-muted: #5C6579;
+  --text-faint: #8B93A5;
+  --accent: #0FA07C;
+  --accent-dim: rgba(15, 160, 124, 0.10);
+  --accent-glow: rgba(15, 160, 124, 0.22);
+  --fail: #E1414F;
+  --fail-dim: rgba(225, 65, 79, 0.10);
+  --pending: #D8DCE3;
+
+  --font-display: 'Space Grotesk', 'Noto Sans JP', sans-serif;
+  --font-body: 'Noto Sans JP', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+/* ===== レイアウト ===== */
+.wrap {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 28px 32px 64px;
+  background:
+    radial-gradient(1100px 600px at 15% -10%, rgba(15, 160, 124, 0.05), transparent 60%),
+    var(--bg);
+  min-height: 100vh;
+  color: var(--text);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ===== ヘッダー ===== */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--border-soft);
+  margin-bottom: 28px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.brandName {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 19px;
+  letter-spacing: 0.2px;
+}
+
+.accent {
+  color: var(--accent);
+}
+
+.brandTag {
+  font-size: 11.5px;
+  color: var(--text-faint);
+  margin-top: 1px;
+}
+
+.headerRight {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+}
+
+.btnAdd {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--accent-dim);
+  color: var(--accent);
+  border: 1px solid rgba(47, 217, 165, 0.35);
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: var(--font-body);
+  cursor: pointer;
+}
+
+.btnAdd:hover {
+  background: var(--accent-glow);
+}
+
+/* ===== ユーザーメニュー ===== */
+.userMenu {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  padding: 6px 8px;
+  border-radius: 8px;
+  transition: background 0.12s ease;
+}
+
+.userMenu:hover {
+  background: var(--surface-2);
+}
+
+.userMenuName {
+  font-size: 13px;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.userMenuChevron {
+  color: var(--text-faint);
+  flex-shrink: 0;
+  transition: transform 0.12s ease;
+}
+
+.userMenuOpen .userMenuChevron {
+  transform: rotate(180deg);
+}
+
+.userDropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px -8px rgba(20, 24, 33, 0.18);
+  min-width: 130px;
+  padding: 4px;
+  z-index: 40;
+}
+
+.userDropdownItem {
+  font-size: 13px;
+  color: var(--text);
+  padding: 9px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.userDropdownItem:hover {
+  background: var(--surface-2);
+}
+
+/* ===== プロジェクトタブ ===== */
+.tabs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.tabList {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.tab {
+  font-size: 13.5px;
+  color: var(--text-faint);
+  padding: 10px 16px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex-shrink: 1;
+  border-radius: 8px 8px 0 0;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+
+.tabActive {
+  color: var(--accent);
+  background: var(--accent-dim);
+  font-weight: 700;
+  border-bottom: 2px solid var(--accent);
+  flex-shrink: 2;
+}
+
+.tabFilter {
+  font-size: 12.5px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 6px 10px;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.tabFilter:hover {
+  background: var(--surface-2);
+  color: var(--text-muted);
+}
+
+/* ===== 管理者ナビゲーション ===== */
+.adminNav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 0;
+  margin-bottom: 26px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.adminNavItem {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-faint);
+  padding: 7px 14px;
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.adminNavItemActive {
+  color: var(--accent);
+  background: var(--accent-dim);
+}
+
+.adminNavItem:not(.adminNavItemActive):hover {
+  color: var(--text-muted);
+  background: var(--surface-2);
+}
+
+/* ===== ページタイトル ===== */
+.pageHead {
+  margin-bottom: 26px;
+}
+
+.pageTitle {
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  margin: 0;
+}
+
+.pageSub {
+  font-size: 13px;
+  color: var(--text-faint);
+  margin: 6px 0 0 0;
+}
+
+.settingsPlaceholder {
+  font-size: 14px;
+  color: var(--text-faint);
+  margin-top: 20px;
+}
+
+/* ===== カード ===== */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 22px 24px;
+}
+
+.cardLabel {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 14px;
+}
+
+/* ===== 全体進捗カード ===== */
+.progressCard {
+  padding: 28px 32px;
+  margin-bottom: 16px;
+}
+
+.progressLabel {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 12px;
+}
+
+.progressMain {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  margin-bottom: 20px;
+}
+
+.progressValue {
+  font-family: var(--font-mono);
+  font-size: 52px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1;
+}
+
+.progressPercent {
+  font-family: var(--font-mono);
+  font-size: 22px;
+  color: var(--text-muted);
+}
+
+.progressTrack {
+  height: 10px;
+  border-radius: 6px;
+  background: var(--border);
+  overflow: hidden;
+  margin-bottom: 14px;
+}
+
+.progressFill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 6px;
+}
+
+.progressCaption {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text-faint);
+}
+
+/* ===== メイングリッド ===== */
+.mainGrid {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  gap: 16px;
+}
+
+/* ===== ドーナツチャート ===== */
+.donutWrap {
+  display: flex;
+  justify-content: center;
+  margin: 6px 0 20px;
+}
+
+.donut {
+  width: 150px;
+  height: 150px;
+  border-radius: 50%;
+  position: relative;
+}
+
+.donut::after {
+  content: "";
+  position: absolute;
+  inset: 22px;
+  border-radius: 50%;
+  background: var(--surface);
+}
+
+.donutCenter {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 1;
+}
+
+.donutCenter b {
+  font-family: var(--font-mono);
+  font-size: 20px;
+}
+
+.donutCenter span {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+/* ===== 凡例 ===== */
+.legendRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--border-soft);
+  font-size: 13px;
+}
+
+.legendRow:last-child {
+  border-bottom: none;
+}
+
+.legendName {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.legendFigures {
+  display: flex;
+  justify-content: flex-end;
+  align-items: baseline;
+  min-width: 88px;
+}
+
+.legendNum {
+  font-family: var(--font-mono);
+  color: var(--text);
+  text-align: right;
+}
+
+.legendPct {
+  font-family: var(--font-mono);
+  color: var(--text-faint);
+  font-size: 12px;
+  margin-left: 6px;
+  min-width: 34px;
+  text-align: right;
+}
+
+/* ===== テストファイル一覧 ===== */
+.filesTopRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.filesTitle {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.filesHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.searchBox {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 6px 10px;
+  font-size: 12.5px;
+  color: var(--text-faint);
+  width: 170px;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.searchBox:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+
+.searchBox svg {
+  flex-shrink: 0;
+}
+
+.searchBox input {
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 12.5px;
+  font-family: var(--font-body);
+  color: var(--text);
+  width: 100%;
+}
+
+.searchBox input::placeholder {
+  color: var(--text-faint);
+}
+
+.segmented {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  overflow: hidden;
+  background: var(--surface-2);
+}
+
+.segment {
+  font-size: 12px;
+  color: var(--text-faint);
+  padding: 6px 12px;
+  cursor: pointer;
+  border-right: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.segment:last-child {
+  border-right: none;
+}
+
+.segmentActive {
+  color: var(--text);
+  background: var(--surface);
+  font-weight: 600;
+}
+
+/* ===== ファイルテーブル ===== */
+.filesTable {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.filesTable thead th {
+  text-align: left;
+  font-size: 11px;
+  color: var(--text-faint);
+  font-weight: 500;
+  padding: 0 4px 10px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.filesTable tbody td {
+  padding: 14px 4px;
+  border-bottom: 1px solid var(--border-soft);
+  vertical-align: middle;
+}
+
+.filesTable tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.fileCell {
+  display: flex;
+  align-items: center;
+}
+
+.fileName {
+  font-size: 13px;
+  color: var(--text);
+}
+
+.progWrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.progBar {
+  width: 100px;
+  height: 6px;
+  border-radius: 4px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.progBar span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 4px;
+}
+
+.progPct {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--text-muted);
+  width: 32px;
+}
+
+.metaText {
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+.metaName {
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
+.filesEmpty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 56px 20px;
+  color: var(--text-faint);
+  font-size: 13.5px;
+  background: var(--surface-2);
+  border-radius: 10px;
+}
