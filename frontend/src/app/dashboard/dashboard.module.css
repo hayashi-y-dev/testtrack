@@ -582,15 +582,27 @@
   position: absolute;
   top: 0;
   right: 0;
-  width: 4px;
+  width: 5px;
   height: 100%;
   cursor: col-resize;
   background: transparent;
   transition: background 0.12s ease;
 }
 
-.resizeHandle:hover {
+.resizeHandle::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  width: 1px;
+  background: var(--border);
+}
+
+.resizeHandle:hover::before {
   background: var(--accent);
+  width: 2px;
+  left: 1.5px;
 }
 
 .filesTable tbody td {
