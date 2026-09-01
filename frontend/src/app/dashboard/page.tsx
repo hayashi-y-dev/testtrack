@@ -39,6 +39,8 @@ export default function DashboardPage() {
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterSegment, setFilterSegment] = useState<'all' | 'incomplete' | 'complete'>('all');
+  const [displayLimit, setDisplayLimit] = useState<5 | 10 | 'all'>(5);
+  const [isSortMenuOpen, setIsSortMenuOpen] = useState(false);
 
   const activeProject = MOCK_PROJECTS.find(p => p.id === activeProjectId);
   const progressPercent = Math.round((MOCK_STATS.ok + MOCK_STATS.ng) / MOCK_STATS.total * 100);
@@ -58,6 +60,12 @@ export default function DashboardPage() {
     }
     return true;
   });
+
+  const displayedFiles = displayLimit === 'all'
+    ? filteredFiles
+    : filteredFiles.slice(0, displayLimit);
+
+  const displayLimitLabel = displayLimit === 'all' ? 'すべて' : `最新${displayLimit}件`;
 
   return (
     <div className={styles.wrap}>
@@ -237,9 +245,39 @@ export default function DashboardPage() {
                     全件実施済み
                   </div>
                 </div>
+                <div className={styles.sortBoxWrap}>
+                  <div
+                    className={styles.sortBox}
+                    onClick={() => setIsSortMenuOpen(!isSortMenuOpen)}
+                  >
+                    {displayLimitLabel} ▾
+                  </div>
+                  {isSortMenuOpen && (
+                    <div className={styles.sortMenu}>
+                      <div
+                        className={styles.sortMenuItem}
+                        onClick={() => { setDisplayLimit(5); setIsSortMenuOpen(false); }}
+                      >
+                        最新5件
+                      </div>
+                      <div
+                        className={styles.sortMenuItem}
+                        onClick={() => { setDisplayLimit(10); setIsSortMenuOpen(false); }}
+                      >
+                        最新10件
+                      </div>
+                      <div
+                        className={styles.sortMenuItem}
+                        onClick={() => { setDisplayLimit('all'); setIsSortMenuOpen(false); }}
+                      >
+                        すべて
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
 
-              {filteredFiles.length > 0 ? (
+              {displayedFiles.length > 0 ? (
                 <table className={styles.filesTable}>
                   <thead>
                     <tr>
@@ -250,7 +288,7 @@ export default function DashboardPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredFiles.map(file => (
+                    {displayedFiles.map(file => (
                       <tr key={file.id}>
                         <td>
                           <div className={styles.fileCell}>

@@ -517,6 +517,51 @@
   font-weight: 600;
 }
 
+/* ===== ソートボックス ===== */
+.sortBoxWrap {
+  position: relative;
+}
+
+.sortBox {
+  font-size: 12px;
+  color: var(--text-faint);
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+  border-radius: 7px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.sortBox:hover {
+  border-color: var(--text-faint);
+}
+
+.sortMenu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px -8px rgba(20, 24, 33, 0.18);
+  min-width: 110px;
+  padding: 4px;
+  z-index: 60;
+}
+
+.sortMenuItem {
+  font-size: 12.5px;
+  color: var(--text);
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.sortMenuItem:hover {
+  background: var(--surface-2);
+}
+
 /* ===== ファイルテーブル ===== */
 .filesTable {
   width: 100%;
