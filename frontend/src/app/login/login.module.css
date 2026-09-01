@@ -155,7 +155,7 @@
   box-shadow: 0 0 0 3px var(--accent-dim);
 }
 
-/* エラー状態 */
+/* ===== エラー状態 ===== */
 .fieldError .input {
   border-color: var(--fail);
   background: var(--fail-dim);
