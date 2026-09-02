@@ -1226,11 +1226,15 @@
 
 /* ===== 行メニュー ===== */
 .actionDots {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 20px;
   color: var(--text-faint);
   cursor: pointer;
   font-size: 16px;
   position: relative;
-  padding: 4px 8px;
+  padding: 0 8px;
   border-radius: 4px;
 }
 
