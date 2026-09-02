@@ -43,6 +43,20 @@ const MOCK_MEMBERS = [
 
 type Role = '管理者' | 'テスター' | '閲覧者';
 
+// 検索対象の全ユーザー（仮データ）
+const ALL_USERS = [
+  { id: '1', name: '佐藤 花子', email: 'hanako.sato@example.com' },
+  { id: '2', name: '田中 美咲', email: 'misaki.tanaka@example.com' },
+  { id: '3', name: '山田 太郎', email: 'taro.yamada@example.com' },
+  { id: '4', name: '鈴木 健一', email: 'kenichi.suzuki@example.com' },
+  { id: '5', name: '高橋 裕子', email: 'yuko.takahashi@example.com' },
+  { id: '6', name: '伊藤 直樹', email: 'naoki.ito@example.com' },
+  { id: '7', name: '中村 恵', email: 'megumi.nakamura@example.com' },
+  { id: '8', name: '渡辺 淳', email: 'jun.watanabe@example.com' },
+  { id: '9', name: '小林 真一', email: 'shinichi.kobayashi@example.com' },
+  { id: '10', name: '加藤 由美', email: 'yumi.kato@example.com' },
+];
+
 export default function DashboardPage() {
   const [projects, setProjects] = useState(MOCK_PROJECTS);
   const [activeProjectId, setActiveProjectId] = useState(MOCK_PROJECTS[0].id);
@@ -64,6 +78,8 @@ export default function DashboardPage() {
   const [isCreateProjectModalOpen, setIsCreateProjectModalOpen] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
   const [newProjectNameError, setNewProjectNameError] = useState<string | null>(null);
+  const [isAddMemberModalOpen, setIsAddMemberModalOpen] = useState(false);
+  const [memberSearchQuery, setMemberSearchQuery] = useState('');
 
   // 列幅リサイズ機能
   const [columnWidths, setColumnWidths] = useState([40, 22, 19, 19]); // %単位
@@ -538,7 +554,12 @@ export default function DashboardPage() {
           <div className={`${styles.card} ${styles.settingsSection}`}>
             <div className={styles.settingsSectionHead}>
               <div className={styles.settingsSectionTitle}>メンバー管理</div>
-              <button className={styles.btnSecondary}>＋ メンバーを追加</button>
+              <button
+                className={styles.btnSecondary}
+                onClick={() => setIsAddMemberModalOpen(true)}
+              >
+                ＋ メンバーを追加
+              </button>
             </div>
 
             <table className={styles.memberTable}>
@@ -703,6 +724,103 @@ export default function DashboardPage() {
                 }}
               >
                 作成
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== メンバー追加モーダル ===== */}
+      {isAddMemberModalOpen && (
+        <div
+          className={styles.modalOverlay}
+          onClick={() => {
+            setIsAddMemberModalOpen(false);
+            setMemberSearchQuery('');
+          }}
+        >
+          <div
+            className={`${styles.modalBox} ${styles.modalBoxWide}`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className={styles.modalTitle}>メンバーを追加</div>
+
+            <div className={styles.memberSearchBox}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="11" cy="11" r="7"></circle>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+              </svg>
+              <input
+                type="text"
+                placeholder="氏名またはメールアドレスで検索"
+                value={memberSearchQuery}
+                onChange={(e) => setMemberSearchQuery(e.target.value)}
+              />
+            </div>
+
+            {!memberSearchQuery.trim() ? (
+              <div className={styles.searchHint}>
+                氏名またはメールアドレスを入力すると、候補が表示されます。
+              </div>
+            ) : (
+              <div className={styles.resultList}>
+                {ALL_USERS
+                  .filter(user => {
+                    const query = memberSearchQuery.toLowerCase();
+                    return user.name.toLowerCase().includes(query) ||
+                           user.email.toLowerCase().includes(query);
+                  })
+                  .map(user => {
+                    const isJoined = members.some(m => m.id === user.id);
+                    return (
+                      <div
+                        key={user.id}
+                        className={`${styles.resultRow} ${isJoined ? styles.resultRowJoined : ''}`}
+                      >
+                        <div className={styles.resultInfo}>
+                          <div className={styles.resultName}>{user.name}</div>
+                          <div className={styles.resultEmail}>{user.email}</div>
+                        </div>
+                        {isJoined ? (
+                          <div className={styles.joinedLabel}>参加済み</div>
+                        ) : (
+                          <button
+                            className={styles.btnAddMember}
+                            onClick={() => {
+                              setMembers(prev => [
+                                ...prev,
+                                {
+                                  id: user.id,
+                                  name: user.name,
+                                  email: user.email,
+                                  role: 'テスター' as const,
+                                  isCurrentUser: false,
+                                }
+                              ]);
+                            }}
+                          >
+                            追加
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+              </div>
+            )}
+
+            <div className={styles.modalRoleNote}>
+              追加されたメンバーは自動的に「テスター」としてプロジェクトに参加します。ロールは追加後にメンバー一覧から変更できます。
+            </div>
+
+            <div className={styles.modalActions}>
+              <button
+                className={`${styles.btnMini} ${styles.btnMiniPrimary}`}
+                onClick={() => {
+                  setIsAddMemberModalOpen(false);
+                  setMemberSearchQuery('');
+                }}
+              >
+                閉じる
               </button>
             </div>
           </div>
