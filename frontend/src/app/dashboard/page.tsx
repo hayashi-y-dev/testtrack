@@ -618,7 +618,9 @@ export default function DashboardPage() {
           <div className={`${styles.card} ${styles.settingsSection} ${styles.settingsDanger}`}>
             <div className={styles.settingsSectionTitle}>プロジェクト終了</div>
             <p className={styles.settingsDangerText}>
-              終了すると更新系の操作（ファイル読込・メンバー変更など）ができなくなります。データは削除されず、閲覧専用になります。
+              終了すると更新系の操作（ファイル読込・メンバー変更など）ができなくなります。
+              <br />
+              データは削除されず、閲覧専用になります。
             </p>
             <button className={styles.btnDanger}>プロジェクトを終了</button>
           </div>
