@@ -60,6 +60,11 @@ export default function DashboardPage() {
   const [editingNameValue, setEditingNameValue] = useState('');
   const [memberRoleEdits, setMemberRoleEdits] = useState<Record<string, Role>>({});
 
+  // モーダル
+  const [isCreateProjectModalOpen, setIsCreateProjectModalOpen] = useState(false);
+  const [newProjectName, setNewProjectName] = useState('');
+  const [newProjectNameError, setNewProjectNameError] = useState<string | null>(null);
+
   // 列幅リサイズ機能
   const [columnWidths, setColumnWidths] = useState([40, 22, 19, 19]); // %単位
   const resizingRef = useRef<{ index: number; startX: number; startWidths: number[] } | null>(null);
@@ -179,7 +184,12 @@ export default function DashboardPage() {
           </div>
         </div>
         <div className={styles.headerRight}>
-          <button className={styles.btnAdd}>＋ プロジェクト追加</button>
+          <button
+            className={styles.btnAdd}
+            onClick={() => setIsCreateProjectModalOpen(true)}
+          >
+            ＋ プロジェクト追加
+          </button>
           <div
             className={`${styles.userMenu} ${isUserMenuOpen ? styles.userMenuOpen : ''}`}
             onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
@@ -625,6 +635,78 @@ export default function DashboardPage() {
             <button className={styles.btnDanger}>プロジェクトを終了</button>
           </div>
         </>
+      )}
+
+      {/* ===== プロジェクト作成モーダル ===== */}
+      {isCreateProjectModalOpen && (
+        <div
+          className={styles.modalOverlay}
+          onClick={() => {
+            setIsCreateProjectModalOpen(false);
+            setNewProjectName('');
+            setNewProjectNameError(null);
+          }}
+        >
+          <div className={styles.modalBox} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.modalTitle}>新規プロジェクトを作成</div>
+
+            <div className={styles.fieldGroup}>
+              <label className={styles.fieldLabelSm}>プロジェクト名</label>
+              <input
+                type="text"
+                placeholder="プロジェクト名を入力"
+                maxLength={50}
+                value={newProjectName}
+                onChange={(e) => {
+                  setNewProjectName(e.target.value);
+                  if (newProjectNameError) {
+                    setNewProjectNameError(null);
+                  }
+                }}
+                className={newProjectNameError ? styles.inputError : ''}
+              />
+              {newProjectNameError && (
+                <div className={styles.fieldErrorSm}>{newProjectNameError}</div>
+              )}
+            </div>
+
+            <div className={styles.modalActions}>
+              <button
+                className={styles.btnMini}
+                onClick={() => {
+                  setIsCreateProjectModalOpen(false);
+                  setNewProjectName('');
+                  setNewProjectNameError(null);
+                }}
+              >
+                キャンセル
+              </button>
+              <button
+                className={`${styles.btnMini} ${styles.btnMiniPrimary}`}
+                onClick={() => {
+                  const trimmed = newProjectName.trim();
+                  if (!trimmed || trimmed.length > 50) {
+                    setNewProjectNameError('プロジェクト名を入力してください（1〜50文字）。');
+                    return;
+                  }
+
+                  const newProject = {
+                    id: String(Date.now()),
+                    name: trimmed,
+                  };
+                  setProjects(prev => [...prev, newProject]);
+                  setActiveProjectId(newProject.id);
+                  setActiveNav('dashboard');
+                  setIsCreateProjectModalOpen(false);
+                  setNewProjectName('');
+                  setNewProjectNameError(null);
+                }}
+              >
+                作成
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
