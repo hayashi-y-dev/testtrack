@@ -1,6 +1,7 @@
 /**
- * 管理者ダッシュボードのスタイル
- * HTMLモック (docs/mockups/05_admin_dashboard.html) のデザインを再現
+ * ダッシュボード共通スタイル
+ * ロール（管理者/テスター/閲覧者）に関わらず統一されたUI
+ * HTMLモック (docs/mockups/) のデザインを再現
  * 仕様書4-10のビジュアルデザイン方針に準拠
  */
 
@@ -231,7 +232,7 @@
   color: var(--text-muted);
 }
 
-/* ===== 管理者ナビゲーション ===== */
+/* ===== 設定画面ナビゲーション（管理者のみ表示） ===== */
 .adminNav {
   display: flex;
   align-items: center;
