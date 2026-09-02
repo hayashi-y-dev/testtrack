@@ -460,10 +460,9 @@
 /* ===== テストファイル一覧 ===== */
 .filesTopRow {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   margin-bottom: 16px;
-  min-height: 34px;
 }
 
 .filesTitle {
@@ -1219,6 +1218,7 @@
   font-size: 13px;
   font-weight: 600;
   font-family: var(--font-body);
+  line-height: 1;
   cursor: pointer;
 }
 
