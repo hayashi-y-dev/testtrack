@@ -110,7 +110,7 @@ const ALL_USERS = [
 
 export default function DashboardPage() {
   const [projects, setProjects] = useState(MOCK_PROJECTS);
-  const [activeProjectId, setActiveProjectId] = useState(MOCK_PROJECTS[0].id);
+  const [activeProjectId, setActiveProjectId] = useState(MOCK_PROJECTS[0]?.id ?? '');
   const [activeProjectDetail, setActiveProjectDetail] = useState<ProjectDetail | null>(null);
   const [isLoadingProject, setIsLoadingProject] = useState(false);
   const [activeNav, setActiveNav] = useState<'dashboard' | 'settings'>('dashboard');
@@ -485,8 +485,27 @@ export default function DashboardPage() {
         <div className={styles.tabFilter}>終了済み 3 件 ▾</div>
       </div>
 
+      {/* ===== 進行中プロジェクト0件 ===== */}
+      {projects.length === 0 && (
+        <div className={`${styles.card} ${styles.noProjectCard}`}>
+          <div className={styles.noProjectIcon}>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="3" width="7" height="7" rx="1.5"></rect>
+              <rect x="14" y="3" width="7" height="7" rx="1.5"></rect>
+              <rect x="3" y="14" width="7" height="7" rx="1.5"></rect>
+              <rect x="14" y="14" width="7" height="7" rx="1.5"></rect>
+            </svg>
+          </div>
+          <div className={styles.noProjectTitle}>表示するプロジェクトがありません</div>
+          <div className={styles.noProjectHint}>
+            画面右上の「＋ プロジェクト追加」から、<br />
+            新しいプロジェクトを作成できます。
+          </div>
+        </div>
+      )}
+
       {/* ===== 管理者ナビゲーション（管理者のみ） ===== */}
-      {canManage && (
+      {projects.length > 0 && canManage && (
         <nav className={styles.adminNav}>
           <div
             className={`${styles.adminNavItem} ${activeNav === 'dashboard' ? styles.adminNavItemActive : ''}`}
@@ -504,7 +523,7 @@ export default function DashboardPage() {
       )}
 
       {/* ===== ダッシュボードビュー ===== */}
-      {activeNav === 'dashboard' && (
+      {projects.length > 0 && activeNav === 'dashboard' && (
         <>
           <div className={styles.pageHead}>
             <h1 className={styles.pageTitle}>{activeProject?.name}</h1>
@@ -759,7 +778,7 @@ export default function DashboardPage() {
       )}
 
       {/* ===== プロジェクト設定ビュー（管理者のみ） ===== */}
-      {activeNav === 'settings' && canManage && (
+      {projects.length > 0 && activeNav === 'settings' && canManage && (
         <>
           <div className={styles.pageHead}>
             <h1 className={styles.pageTitle}>{activeProject?.name}</h1>
