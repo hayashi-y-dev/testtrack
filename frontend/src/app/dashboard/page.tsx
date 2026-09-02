@@ -34,6 +34,7 @@ const MOCK_STATS = {
 };
 
 export default function DashboardPage() {
+  const [projects, setProjects] = useState(MOCK_PROJECTS);
   const [activeProjectId, setActiveProjectId] = useState(MOCK_PROJECTS[0].id);
   const [activeNav, setActiveNav] = useState<'dashboard' | 'settings'>('dashboard');
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
@@ -41,6 +42,7 @@ export default function DashboardPage() {
   const [filterSegment, setFilterSegment] = useState<'all' | 'incomplete' | 'complete'>('all');
   const [displayLimit, setDisplayLimit] = useState<5 | 10 | 'all'>(5);
   const [isSortMenuOpen, setIsSortMenuOpen] = useState(false);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
 
   // 列幅リサイズ機能
   const [columnWidths, setColumnWidths] = useState([40, 22, 19, 19]); // %単位
@@ -98,8 +100,33 @@ export default function DashboardPage() {
     };
   }, []);
 
-  const activeProject = MOCK_PROJECTS.find(p => p.id === activeProjectId);
+  const activeProject = projects.find(p => p.id === activeProjectId);
   const progressPercent = Math.round((MOCK_STATS.ok + MOCK_STATS.ng) / MOCK_STATS.total * 100);
+
+  // タブのドラッグ&ドロップ
+  const handleDragStart = (e: React.DragEvent, projectId: string) => {
+    setDraggingId(projectId);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragEnd = () => {
+    setDraggingId(null);
+  };
+
+  const handleDragOver = (e: React.DragEvent, targetId: string) => {
+    e.preventDefault();
+    if (!draggingId || draggingId === targetId) return;
+
+    const dragIndex = projects.findIndex(p => p.id === draggingId);
+    const targetIndex = projects.findIndex(p => p.id === targetId);
+
+    if (dragIndex === -1 || targetIndex === -1) return;
+
+    const newProjects = [...projects];
+    const [draggedProject] = newProjects.splice(dragIndex, 1);
+    newProjects.splice(targetIndex, 0, draggedProject);
+    setProjects(newProjects);
+  };
   const okPercent = Math.round(MOCK_STATS.ok / MOCK_STATS.total * 100);
   const ngPercent = Math.round(MOCK_STATS.ng / MOCK_STATS.total * 100);
   const pendingPercent = Math.round(MOCK_STATS.pending / MOCK_STATS.total * 100);
@@ -157,11 +184,15 @@ export default function DashboardPage() {
       {/* ===== プロジェクトタブ ===== */}
       <div className={styles.tabs}>
         <div className={styles.tabList}>
-          {MOCK_PROJECTS.map(project => (
+          {projects.map(project => (
             <div
               key={project.id}
-              className={`${styles.tab} ${project.id === activeProjectId ? styles.tabActive : ''}`}
+              className={`${styles.tab} ${project.id === activeProjectId ? styles.tabActive : ''} ${draggingId === project.id ? styles.tabDragging : ''}`}
               onClick={() => setActiveProjectId(project.id)}
+              draggable
+              onDragStart={(e) => handleDragStart(e, project.id)}
+              onDragEnd={handleDragEnd}
+              onDragOver={(e) => handleDragOver(e, project.id)}
             >
               {project.name}
             </div>
