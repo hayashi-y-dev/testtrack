@@ -1182,3 +1182,20 @@
   padding-top: 14px;
   border-top: 1px solid var(--border-soft);
 }
+
+/* ===== プロジェクト終了確認モーダル ===== */
+.modalDesc {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  line-height: 1.7;
+  margin: 0 0 16px 0;
+}
+
+.modalTarget {
+  font-size: 12.5px;
+  color: var(--text);
+  background: var(--surface-2);
+  padding: 10px 12px;
+  border-radius: 8px;
+  margin-bottom: 22px;
+}

@@ -80,6 +80,7 @@ export default function DashboardPage() {
   const [newProjectNameError, setNewProjectNameError] = useState<string | null>(null);
   const [isAddMemberModalOpen, setIsAddMemberModalOpen] = useState(false);
   const [memberSearchQuery, setMemberSearchQuery] = useState('');
+  const [isTerminateModalOpen, setIsTerminateModalOpen] = useState(false);
 
   // 列幅リサイズ機能
   const [columnWidths, setColumnWidths] = useState([40, 22, 19, 19]); // %単位
@@ -653,7 +654,12 @@ export default function DashboardPage() {
               <br />
               データは削除されず、閲覧専用になります。
             </p>
-            <button className={styles.btnDanger}>プロジェクトを終了</button>
+            <button
+              className={styles.btnDanger}
+              onClick={() => setIsTerminateModalOpen(true)}
+            >
+              プロジェクトを終了
+            </button>
           </div>
         </>
       )}
@@ -821,6 +827,49 @@ export default function DashboardPage() {
                 }}
               >
                 閉じる
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== プロジェクト終了確認モーダル ===== */}
+      {isTerminateModalOpen && (
+        <div
+          className={styles.modalOverlay}
+          onClick={() => setIsTerminateModalOpen(false)}
+        >
+          <div className={styles.modalBox} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.modalTitle}>プロジェクトを終了しますか？</div>
+            <p className={styles.modalDesc}>
+              終了後もデータは削除されず、閲覧専用になります。
+              <br />
+              この操作は取り消せません。
+            </p>
+            <div className={styles.modalTarget}>
+              対象プロジェクト: <b>{activeProject?.name}</b>
+            </div>
+            <div className={styles.modalActions}>
+              <button
+                className={styles.btnMini}
+                onClick={() => setIsTerminateModalOpen(false)}
+              >
+                キャンセル
+              </button>
+              <button
+                className={styles.btnDanger}
+                onClick={() => {
+                  // プロジェクトを終了済みにする（実際のAPI実装後は削除）
+                  setProjects(prev => prev.filter(p => p.id !== activeProjectId));
+                  if (projects.length > 1) {
+                    const remaining = projects.filter(p => p.id !== activeProjectId);
+                    setActiveProjectId(remaining[0]?.id || '');
+                  }
+                  setIsTerminateModalOpen(false);
+                  setActiveNav('dashboard');
+                }}
+              >
+                プロジェクトを終了
               </button>
             </div>
           </div>
