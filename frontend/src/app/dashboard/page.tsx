@@ -56,6 +56,18 @@ const MOCK_PROJECTS: Project[] = [
   { id: '5', name: 'テストケース0件プロジェクト', role: 'テスター' },
 ];
 
+// 終了済みプロジェクト（仮データ）
+type ArchivedProject = {
+  id: string;
+  name: string;
+};
+
+const MOCK_ARCHIVED_PROJECTS: ArchivedProject[] = [
+  { id: 'a1', name: '基幹システム改修プロジェクト' },
+  { id: 'a2', name: '旧管理画面リニューアル' },
+  { id: 'a3', name: '決済API移行検証' },
+];
+
 // プロジェクトごとのファイルデータ
 const MOCK_FILES_BY_PROJECT: Record<string, FileData[]> = {
   '1': [
@@ -75,6 +87,20 @@ const MOCK_FILES_BY_PROJECT: Record<string, FileData[]> = {
   '5': [
     { id: '1', name: 'テストケース未定義_企画メモ_v0.1.xlsx', progress: null, updatedAt: '2026/08/31 10:05', updatedBy: '田中 美咲', hasHistory: false },
   ], // テストケース0件
+  // 終了済みプロジェクト
+  'a1': [
+    { id: '1', name: 'EC機能テスト仕様書_v2.3.xlsx', progress: 95, updatedAt: '2026/08/30 18:42', updatedBy: '田中 美咲', hasHistory: true },
+    { id: '2', name: 'EC_API結合テスト仕様書_v1.5.xlsx', progress: 88, updatedAt: '2026/08/29 14:15', updatedBy: '山田 太郎', hasHistory: true },
+    { id: '3', name: 'EC_決済フロー検証テスト_v1.0.xlsx', progress: 72, updatedAt: '2026/08/28 11:07', updatedBy: '鈴木 健一', hasHistory: true },
+    { id: '4', name: 'EC_管理画面テスト仕様書_v3.1.xlsx', progress: 41, updatedAt: '2026/08/27 16:30', updatedBy: '佐藤 花子', hasHistory: true },
+    { id: '5', name: 'EC_レスポンシブUI確認テスト_詳細版_v2.0.xlsx', progress: 0, updatedAt: '2026/08/25 09:20', updatedBy: '高橋 裕子', hasHistory: false },
+  ],
+  'a2': [
+    { id: '1', name: '旧管理画面_機能テスト仕様書_v1.0.xlsx', progress: 100, updatedAt: '2026/07/15 12:00', updatedBy: '山田 太郎', hasHistory: true },
+  ],
+  'a3': [
+    { id: '1', name: '決済API_結合テスト仕様書_v2.0.xlsx', progress: 90, updatedAt: '2026/06/20 10:00', updatedBy: '鈴木 健一', hasHistory: true },
+  ],
 };
 
 // プロジェクトごとの統計データ
@@ -84,6 +110,10 @@ const stats_BY_PROJECT: Record<string, { total: number; ok: number; ng: number; 
   '3': { total: 100, ok: 100, ng: 0, pending: 0 },
   '4': { total: 0, ok: 0, ng: 0, pending: 0 }, // ファイル0件
   '5': { total: 0, ok: 0, ng: 0, pending: 0 }, // テストケース0件
+  // 終了済みプロジェクト
+  'a1': { total: 248, ok: 162, ng: 19, pending: 67 },
+  'a2': { total: 120, ok: 115, ng: 5, pending: 0 },
+  'a3': { total: 80, ok: 72, ng: 8, pending: 0 },
 };
 
 const MOCK_MEMBERS = [
@@ -122,6 +152,12 @@ export default function DashboardPage() {
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [files, setFiles] = useState<FileData[]>(MOCK_FILES_BY_PROJECT['1'] || []);
   const [stats, setStats] = useState(stats_BY_PROJECT['1']);
+
+  // 終了済みプロジェクト関連
+  const [viewingArchivedProject, setViewingArchivedProject] = useState<ArchivedProject | null>(null);
+  const [isArchivedMenuOpen, setIsArchivedMenuOpen] = useState(false);
+  const archivedMenuRef = useRef<HTMLDivElement>(null);
+  const archivedFilterRef = useRef<HTMLDivElement>(null);
 
   // プロジェクト設定
   const [members, setMembers] = useState(MOCK_MEMBERS);
@@ -191,9 +227,44 @@ export default function DashboardPage() {
   const currentRole = activeProjectDetail?.role || activeProjectFromList?.role || '閲覧者';
   const activeProject = activeProjectDetail || activeProjectFromList;
 
-  // ロールに応じた権限
-  const canManage = currentRole === '管理者';
-  const canEdit = currentRole === '管理者' || currentRole === 'テスター';
+  // 終了済みプロジェクト閲覧中かどうか
+  const isViewingArchived = viewingArchivedProject !== null;
+
+  // 終了済みメニューの外側クリックで閉じる
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        isArchivedMenuOpen &&
+        archivedMenuRef.current &&
+        archivedFilterRef.current &&
+        !archivedMenuRef.current.contains(e.target as Node) &&
+        !archivedFilterRef.current.contains(e.target as Node)
+      ) {
+        setIsArchivedMenuOpen(false);
+      }
+    };
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, [isArchivedMenuOpen]);
+
+  // ロールに応じた権限（終了済みプロジェクト閲覧中は全て無効）
+  const canManage = !isViewingArchived && currentRole === '管理者';
+  const canEdit = !isViewingArchived && (currentRole === '管理者' || currentRole === 'テスター');
+
+  // 終了済みプロジェクトを選択
+  const handleSelectArchivedProject = (project: ArchivedProject) => {
+    setViewingArchivedProject(project);
+    setFiles(MOCK_FILES_BY_PROJECT[project.id] || []);
+    setStats(stats_BY_PROJECT[project.id] || { total: 0, ok: 0, ng: 0, pending: 0 });
+    setIsArchivedMenuOpen(false);
+    setActiveNav('dashboard');
+  };
+
+  // 終了済みプロジェクト閲覧を終了して通常のプロジェクトに戻る
+  const handleExitArchivedView = (projectId: string) => {
+    setViewingArchivedProject(null);
+    setActiveProjectId(projectId);
+  };
 
   const handleResizeStart = useCallback((index: number, e: React.MouseEvent) => {
     e.preventDefault();
@@ -471,8 +542,8 @@ export default function DashboardPage() {
           {projects.map(project => (
             <div
               key={project.id}
-              className={`${styles.tab} ${project.id === activeProjectId ? styles.tabActive : ''} ${draggingId === project.id ? styles.tabDragging : ''}`}
-              onClick={() => setActiveProjectId(project.id)}
+              className={`${styles.tab} ${!isViewingArchived && project.id === activeProjectId ? styles.tabActive : ''} ${draggingId === project.id ? styles.tabDragging : ''}`}
+              onClick={() => isViewingArchived ? handleExitArchivedView(project.id) : setActiveProjectId(project.id)}
               draggable
               onDragStart={(e) => handleDragStart(e, project.id)}
               onDragEnd={handleDragEnd}
@@ -482,7 +553,33 @@ export default function DashboardPage() {
             </div>
           ))}
         </div>
-        <div className={styles.tabFilter}>終了済み 3 件 ▾</div>
+        <div
+          ref={archivedFilterRef}
+          className={`${styles.tabFilter} ${isViewingArchived ? styles.tabFilterSelected : ''}`}
+          onClick={() => setIsArchivedMenuOpen(!isArchivedMenuOpen)}
+        >
+          終了済み {MOCK_ARCHIVED_PROJECTS.length} 件 ▾
+        </div>
+        {isArchivedMenuOpen && (
+          <div
+            ref={archivedMenuRef}
+            className={styles.archivedMenu}
+            style={{
+              top: archivedFilterRef.current ? archivedFilterRef.current.getBoundingClientRect().bottom + 6 : 0,
+              right: archivedFilterRef.current ? window.innerWidth - archivedFilterRef.current.getBoundingClientRect().right : 0,
+            }}
+          >
+            {MOCK_ARCHIVED_PROJECTS.map(project => (
+              <div
+                key={project.id}
+                className={styles.archivedMenuItem}
+                onClick={() => handleSelectArchivedProject(project)}
+              >
+                {project.name}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* ===== 進行中プロジェクト0件 ===== */}
@@ -523,11 +620,23 @@ export default function DashboardPage() {
       )}
 
       {/* ===== ダッシュボードビュー ===== */}
-      {projects.length > 0 && activeNav === 'dashboard' && (
+      {(projects.length > 0 || isViewingArchived) && activeNav === 'dashboard' && (
         <>
           <div className={styles.pageHead}>
-            <h1 className={styles.pageTitle}>{activeProject?.name}</h1>
-            <p className={styles.pageSub}>{roleLabel}</p>
+            {isViewingArchived ? (
+              <>
+                <div className={styles.pageTitleRow}>
+                  <h1 className={styles.pageTitle}>{viewingArchivedProject?.name}</h1>
+                  <span className={styles.archivedBadge}>終了済み</span>
+                </div>
+                <p className={styles.pageSub}>閲覧専用ダッシュボード</p>
+              </>
+            ) : (
+              <>
+                <h1 className={styles.pageTitle}>{activeProject?.name}</h1>
+                <p className={styles.pageSub}>{roleLabel}</p>
+              </>
+            )}
           </div>
 
           {/* 全体進捗カード */}

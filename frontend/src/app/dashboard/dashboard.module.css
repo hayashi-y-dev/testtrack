@@ -1486,3 +1486,51 @@
   color: var(--text-faint);
   line-height: 1.7;
 }
+
+/* ===== 終了済みプロジェクト閲覧 ===== */
+.pageTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.archivedBadge {
+  display: inline-flex;
+  align-items: center;
+  background: var(--surface-2);
+  color: var(--text-faint);
+  border: 1px solid var(--border);
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 6px;
+}
+
+.tabFilterSelected {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+/* ===== 終了済みドロップダウン ===== */
+.archivedMenu {
+  position: fixed;
+  z-index: 60;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px -8px rgba(20, 24, 33, 0.18);
+  min-width: 200px;
+  padding: 4px;
+}
+
+.archivedMenuItem {
+  font-size: 12.5px;
+  color: var(--text);
+  padding: 9px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.archivedMenuItem:hover {
+  background: var(--surface-2);
+}
