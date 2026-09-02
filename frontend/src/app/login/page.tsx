@@ -1,8 +1,13 @@
 'use client';
 
 import { useState, type SubmitEvent } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import styles from './login.module.css';
+
+// 仮のログイン情報（API実装後は削除）
+const DEMO_EMAIL = 'demo@example.com';
+const DEMO_PASSWORD = 'password';
 
 /**
  * ログイン画面
@@ -11,6 +16,7 @@ import styles from './login.module.css';
  * - ログイン失敗時は、どちらが誤りかを特定する文言にしない
  */
 export default function LoginPage() {
+  const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
@@ -63,9 +69,15 @@ export default function LoginPage() {
     // 仮のログイン処理シミュレーション
     // 実際のAPI実装後はここでAPIを呼び出す
     setTimeout(() => {
-      // デモ用: 常にログイン失敗を表示（仕様書1-1: どちらが誤りか特定しない文言）
-      setLoginError('メールアドレスまたはパスワードが正しくありません。');
-      setIsSubmitting(false);
+      const trimmedEmail = email.trim();
+      if (trimmedEmail === DEMO_EMAIL && password === DEMO_PASSWORD) {
+        // ログイン成功: ダッシュボードへ遷移
+        router.push('/dashboard');
+      } else {
+        // ログイン失敗（仕様書1-1: どちらが誤りか特定しない文言）
+        setLoginError('メールアドレスまたはパスワードが正しくありません。');
+        setIsSubmitting(false);
+      }
     }, 500);
   };
 
