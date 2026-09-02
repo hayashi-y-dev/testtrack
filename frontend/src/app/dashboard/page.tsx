@@ -143,6 +143,7 @@ export default function DashboardPage() {
   const [activeProjectId, setActiveProjectId] = useState(MOCK_PROJECTS[0]?.id ?? '');
   const [activeProjectDetail, setActiveProjectDetail] = useState<ProjectDetail | null>(null);
   const [isLoadingProject, setIsLoadingProject] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [activeNav, setActiveNav] = useState<'dashboard' | 'settings'>('dashboard');
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -214,6 +215,7 @@ export default function DashboardPage() {
         setStats(stats_BY_PROJECT[activeProjectId] || { total: 0, ok: 0, ng: 0, pending: 0 });
       }
 
+      setFetchError(null);
       setIsLoadingProject(false);
     };
 
@@ -221,6 +223,17 @@ export default function DashboardPage() {
       fetchProjectDetail();
     }
   }, [activeProjectId]);
+
+  // 再読み込み処理
+  const handleRetry = () => {
+    if (activeProjectId) {
+      setFetchError(null);
+      setIsLoadingProject(true);
+      setFiles(MOCK_FILES_BY_PROJECT[activeProjectId] || []);
+      setStats(stats_BY_PROJECT[activeProjectId] || { total: 0, ok: 0, ng: 0, pending: 0 });
+      setIsLoadingProject(false);
+    }
+  };
 
   // ロール判定は詳細APIから取得した最新ロールを使用
   // 詳細取得中は一覧のキャッシュをフォールバックとして使用
@@ -601,8 +614,32 @@ export default function DashboardPage() {
         </div>
       )}
 
+      {/* ===== ローディング状態 ===== */}
+      {projects.length > 0 && !isViewingArchived && isLoadingProject && (
+        <div className={`${styles.card} ${styles.loadingCard}`}>
+          <div className={styles.spinner}></div>
+          <div className={styles.loadingText}>読み込み中…</div>
+        </div>
+      )}
+
+      {/* ===== エラー状態 ===== */}
+      {projects.length > 0 && !isViewingArchived && fetchError && !isLoadingProject && (
+        <div className={`${styles.card} ${styles.errorCard}`}>
+          <div className={styles.errorIcon}>!</div>
+          <div className={styles.errorTitle}>データを取得できませんでした</div>
+          <div className={styles.errorDesc}>通信状況をご確認のうえ、もう一度お試しください。</div>
+          <button className={styles.btnRetry} onClick={handleRetry}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="23 4 23 10 17 10"></polyline>
+              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+            </svg>
+            再読み込み
+          </button>
+        </div>
+      )}
+
       {/* ===== 管理者ナビゲーション（管理者のみ） ===== */}
-      {projects.length > 0 && canManage && (
+      {projects.length > 0 && !isLoadingProject && !fetchError && canManage && (
         <nav className={styles.adminNav}>
           <div
             className={`${styles.adminNavItem} ${activeNav === 'dashboard' ? styles.adminNavItemActive : ''}`}
@@ -620,7 +657,7 @@ export default function DashboardPage() {
       )}
 
       {/* ===== ダッシュボードビュー ===== */}
-      {(projects.length > 0 || isViewingArchived) && activeNav === 'dashboard' && (
+      {(projects.length > 0 || isViewingArchived) && !isLoadingProject && !fetchError && activeNav === 'dashboard' && (
         <>
           <div className={styles.pageHead}>
             {isViewingArchived ? (
@@ -887,7 +924,7 @@ export default function DashboardPage() {
       )}
 
       {/* ===== プロジェクト設定ビュー（管理者のみ） ===== */}
-      {projects.length > 0 && activeNav === 'settings' && canManage && (
+      {projects.length > 0 && !isLoadingProject && !fetchError && activeNav === 'settings' && canManage && (
         <>
           <div className={styles.pageHead}>
             <h1 className={styles.pageTitle}>{activeProject?.name}</h1>
