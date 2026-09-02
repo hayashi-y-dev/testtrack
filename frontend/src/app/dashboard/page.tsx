@@ -4,26 +4,53 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import styles from './dashboard.module.css';
 
 /**
- * 管理者ダッシュボード
- * 仕様書セクション2-1, 2-2に基づく実装
- * - プロジェクト全体の進捗表示
- * - テスト結果内訳（ドーナツチャート）
- * - テストファイル一覧
+ * ダッシュボード
+ * 仕様書セクション2-1, 2-2, 3-3, 3-5に基づく実装
+ * - プロジェクトごとにロールが異なる
+ * - ロールに応じてUI要素の表示/非表示を切り替え
  */
 
+type Role = '管理者' | 'テスター' | '閲覧者';
+
+type Project = {
+  id: string;
+  name: string;
+  role: Role;
+};
+
+type FileData = {
+  id: string;
+  name: string;
+  progress: number;
+  updatedAt: string;
+  updatedBy: string;
+  hasHistory: boolean;
+};
+
+type UploadFile = {
+  name: string;
+  status: 'new' | 'update' | 'error';
+  before?: number;
+  after?: number;
+  updated?: string;
+  updater?: string;
+  reason?: string;
+  resultStatus?: 'success' | 'conflict' | 'error';
+};
+
 // 仮データ（API実装後は削除）
-const MOCK_PROJECTS = [
-  { id: '1', name: 'ECサイトリニューアル 総合テスト' },
-  { id: '2', name: '基幹システム移行プロジェクト Phase2' },
-  { id: '3', name: 'モバイルアプリ v3.0 受け入れテスト' },
+const MOCK_PROJECTS: Project[] = [
+  { id: '1', name: 'ECサイトリニューアル 総合テスト', role: '管理者' },
+  { id: '2', name: '基幹システム移行プロジェクト Phase2', role: 'テスター' },
+  { id: '3', name: 'モバイルアプリ v3.0 受け入れテスト', role: '閲覧者' },
 ];
 
-const MOCK_FILES = [
-  { id: '1', name: 'EC機能テスト仕様書_v2.3.xlsx', progress: 95, updatedAt: '2026/08/30 18:42', updatedBy: '田中 美咲' },
-  { id: '2', name: 'EC_API結合テスト仕様書_v1.5.xlsx', progress: 88, updatedAt: '2026/08/29 14:15', updatedBy: '山田 太郎' },
-  { id: '3', name: 'EC_決済フロー検証テスト_v1.0.xlsx', progress: 72, updatedAt: '2026/08/28 11:07', updatedBy: '鈴木 健一' },
-  { id: '4', name: 'EC_管理画面テスト仕様書_v3.1.xlsx', progress: 41, updatedAt: '2026/08/27 16:30', updatedBy: '佐藤 花子' },
-  { id: '5', name: 'EC_レスポンシブUI確認テスト_詳細版_v2.0.xlsx', progress: 0, updatedAt: '2026/08/25 09:20', updatedBy: '高橋 裕子' },
+const MOCK_FILES: FileData[] = [
+  { id: '1', name: 'EC機能テスト仕様書_v2.3.xlsx', progress: 95, updatedAt: '2026/08/30 18:42', updatedBy: '田中 美咲', hasHistory: true },
+  { id: '2', name: 'EC_API結合テスト仕様書_v1.5.xlsx', progress: 88, updatedAt: '2026/08/29 14:15', updatedBy: '山田 太郎', hasHistory: true },
+  { id: '3', name: 'EC_決済フロー検証テスト_v1.0.xlsx', progress: 72, updatedAt: '2026/08/28 11:07', updatedBy: '鈴木 健一', hasHistory: true },
+  { id: '4', name: 'EC_管理画面テスト仕様書_v3.1.xlsx', progress: 41, updatedAt: '2026/08/27 16:30', updatedBy: '佐藤 花子', hasHistory: true },
+  { id: '5', name: 'EC_レスポンシブUI確認テスト_詳細版_v2.0.xlsx', progress: 0, updatedAt: '2026/08/25 09:20', updatedBy: '高橋 裕子', hasHistory: false },
 ];
 
 const MOCK_STATS = {
@@ -40,8 +67,6 @@ const MOCK_MEMBERS = [
   { id: '4', name: '鈴木 健一', email: 'kenichi.suzuki@example.com', role: 'テスター' as const, isCurrentUser: false },
   { id: '5', name: '高橋 裕子', email: 'yuko.takahashi@example.com', role: '閲覧者' as const, isCurrentUser: false },
 ];
-
-type Role = '管理者' | 'テスター' | '閲覧者';
 
 // 検索対象の全ユーザー（仮データ）
 const ALL_USERS = [
@@ -67,6 +92,7 @@ export default function DashboardPage() {
   const [displayLimit, setDisplayLimit] = useState<5 | 10 | 'all'>(5);
   const [isSortMenuOpen, setIsSortMenuOpen] = useState(false);
   const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [files, setFiles] = useState(MOCK_FILES);
 
   // プロジェクト設定
   const [members, setMembers] = useState(MOCK_MEMBERS);
@@ -82,10 +108,30 @@ export default function DashboardPage() {
   const [memberSearchQuery, setMemberSearchQuery] = useState('');
   const [isTerminateModalOpen, setIsTerminateModalOpen] = useState(false);
 
+  // 行メニュー（登録取消用）
+  const [rowMenuFile, setRowMenuFile] = useState<FileData | null>(null);
+  const [rowMenuPosition, setRowMenuPosition] = useState({ top: 0, left: 0 });
+  const [cancelConfirmFile, setCancelConfirmFile] = useState<FileData | null>(null);
+  const [cancelBlockedFile, setCancelBlockedFile] = useState<FileData | null>(null);
+
+  // ファイル読込モーダル
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+  const [uploadView, setUploadView] = useState<'select' | 'confirm' | 'result'>('select');
+  const [uploadFiles, setUploadFiles] = useState<UploadFile[]>([]);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   // 列幅リサイズ機能
-  const [columnWidths, setColumnWidths] = useState([40, 22, 19, 19]); // %単位
+  const [columnWidths, setColumnWidths] = useState([36, 20, 16, 16, 6]);
   const resizingRef = useRef<{ index: number; startX: number; startWidths: number[] } | null>(null);
   const tableRef = useRef<HTMLTableElement>(null);
+
+  const activeProject = projects.find(p => p.id === activeProjectId);
+  const currentRole = activeProject?.role || '閲覧者';
+
+  // ロールに応じた権限
+  const canManage = currentRole === '管理者';
+  const canEdit = currentRole === '管理者' || currentRole === 'テスター';
 
   const handleResizeStart = useCallback((index: number, e: React.MouseEvent) => {
     e.preventDefault();
@@ -108,9 +154,8 @@ export default function DashboardPage() {
       const deltaPercent = (deltaX / tableWidth) * 100;
 
       const newWidths = [...startWidths];
-      const minWidth = 10;
+      const minWidth = 8;
 
-      // 現在の列を広げて、次の列を縮める
       const newCurrentWidth = startWidths[index] + deltaPercent;
       const newNextWidth = startWidths[index + 1] - deltaPercent;
 
@@ -138,7 +183,25 @@ export default function DashboardPage() {
     };
   }, []);
 
-  const activeProject = projects.find(p => p.id === activeProjectId);
+  // 行メニュー外クリックで閉じる
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest(`.${styles.rowMenu}`) && !target.closest(`.${styles.actionDots}`)) {
+        setRowMenuFile(null);
+      }
+    };
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, []);
+
+  // プロジェクト切替時にナビをリセット
+  useEffect(() => {
+    if (currentRole !== '管理者') {
+      setActiveNav('dashboard');
+    }
+  }, [activeProjectId, currentRole]);
+
   const progressPercent = Math.round((MOCK_STATS.ok + MOCK_STATS.ng) / MOCK_STATS.total * 100);
 
   // タブのドラッグ&ドロップ
@@ -165,11 +228,12 @@ export default function DashboardPage() {
     newProjects.splice(targetIndex, 0, draggedProject);
     setProjects(newProjects);
   };
+
   const okPercent = Math.round(MOCK_STATS.ok / MOCK_STATS.total * 100);
   const ngPercent = Math.round(MOCK_STATS.ng / MOCK_STATS.total * 100);
   const pendingPercent = Math.round(MOCK_STATS.pending / MOCK_STATS.total * 100);
 
-  const filteredFiles = MOCK_FILES.filter(file => {
+  const filteredFiles = files.filter(file => {
     if (searchQuery && !file.name.toLowerCase().includes(searchQuery.toLowerCase())) {
       return false;
     }
@@ -187,6 +251,104 @@ export default function DashboardPage() {
     : filteredFiles.slice(0, displayLimit);
 
   const displayLimitLabel = displayLimit === 'all' ? 'すべて' : `最新${displayLimit}件`;
+
+  // 閲覧者以外の場合、アクション列の幅を考慮した列幅
+  const effectiveColumnWidths = canEdit
+    ? columnWidths
+    : [40, 22, 19, 19];
+
+  // 行メニュー
+  const handleRowMenuClick = (e: React.MouseEvent, file: FileData) => {
+    e.stopPropagation();
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    setRowMenuPosition({ top: rect.bottom + 4, left: rect.right - 160 });
+    setRowMenuFile(rowMenuFile?.id === file.id ? null : file);
+  };
+
+  const handleUnregisterClick = () => {
+    if (!rowMenuFile) return;
+    setRowMenuFile(null);
+
+    if (rowMenuFile.hasHistory) {
+      setCancelBlockedFile(rowMenuFile);
+    } else {
+      setCancelConfirmFile(rowMenuFile);
+    }
+  };
+
+  const confirmUnregister = () => {
+    if (cancelConfirmFile) {
+      setFiles(prev => prev.filter(f => f.id !== cancelConfirmFile.id));
+    }
+    setCancelConfirmFile(null);
+  };
+
+  // ファイル読込モーダル
+  const existingFileNames = files.map(f => f.name);
+
+  const handleFilesSelected = (fileList: FileList) => {
+    const selected = Array.from(fileList).map(f => {
+      const validExt = /\.(xlsx|xls)$/i.test(f.name);
+      const isUpdate = existingFileNames.includes(f.name);
+      const existingFile = files.find(ef => ef.name === f.name);
+
+      const item: UploadFile = {
+        name: f.name,
+        status: !validExt ? 'error' : (isUpdate ? 'update' : 'new'),
+      };
+
+      if (item.status === 'update' && existingFile) {
+        item.before = existingFile.progress;
+        item.after = Math.min(100, existingFile.progress + 5 + Math.floor(Math.random() * 10));
+        item.updated = existingFile.updatedAt;
+        item.updater = existingFile.updatedBy;
+      }
+      if (item.status === 'error') {
+        item.reason = '対応外の拡張子です（.xlsx / .xls のみ対応）';
+      }
+      return item;
+    });
+
+    selected.sort((a, b) => a.name.localeCompare(b.name, 'ja', { numeric: true, sensitivity: 'base' }));
+    setUploadFiles(selected);
+    setUploadView('confirm');
+  };
+
+  const executeImport = () => {
+    let conflictAssigned = false;
+    const results = uploadFiles.map(f => {
+      if (f.status === 'error') {
+        return { ...f, resultStatus: 'error' as const };
+      }
+      if (f.status === 'update' && !conflictAssigned && f.name === 'EC機能テスト仕様書_v2.3.xlsx') {
+        conflictAssigned = true;
+        return { ...f, resultStatus: 'conflict' as const };
+      }
+      return { ...f, resultStatus: 'success' as const };
+    });
+
+    setUploadFiles(results);
+    setUploadView('result');
+  };
+
+  const closeUploadModal = () => {
+    setIsUploadModalOpen(false);
+    setUploadView('select');
+    setUploadFiles([]);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const uploadErrorCount = uploadFiles.filter(f => f.status === 'error').length;
+  const uploadValidCount = uploadFiles.length - uploadErrorCount;
+  const uploadSuccessCount = uploadFiles.filter(f => f.resultStatus === 'success').length;
+  const uploadFailCount = uploadFiles.length - uploadSuccessCount;
+
+  // ロール表示名
+  const roleLabel = currentRole === '管理者' ? '管理者ダッシュボード'
+    : currentRole === 'テスター' ? 'テスターダッシュボード'
+    : '閲覧者ダッシュボード';
 
   return (
     <div className={styles.wrap}>
@@ -244,28 +406,30 @@ export default function DashboardPage() {
         <div className={styles.tabFilter}>終了済み 3 件 ▾</div>
       </div>
 
-      {/* ===== 管理者ナビゲーション ===== */}
-      <nav className={styles.adminNav}>
-        <div
-          className={`${styles.adminNavItem} ${activeNav === 'dashboard' ? styles.adminNavItemActive : ''}`}
-          onClick={() => setActiveNav('dashboard')}
-        >
-          ダッシュボード
-        </div>
-        <div
-          className={`${styles.adminNavItem} ${activeNav === 'settings' ? styles.adminNavItemActive : ''}`}
-          onClick={() => setActiveNav('settings')}
-        >
-          プロジェクト設定
-        </div>
-      </nav>
+      {/* ===== 管理者ナビゲーション（管理者のみ） ===== */}
+      {canManage && (
+        <nav className={styles.adminNav}>
+          <div
+            className={`${styles.adminNavItem} ${activeNav === 'dashboard' ? styles.adminNavItemActive : ''}`}
+            onClick={() => setActiveNav('dashboard')}
+          >
+            ダッシュボード
+          </div>
+          <div
+            className={`${styles.adminNavItem} ${activeNav === 'settings' ? styles.adminNavItemActive : ''}`}
+            onClick={() => setActiveNav('settings')}
+          >
+            プロジェクト設定
+          </div>
+        </nav>
+      )}
 
       {/* ===== ダッシュボードビュー ===== */}
       {activeNav === 'dashboard' && (
         <>
           <div className={styles.pageHead}>
             <h1 className={styles.pageTitle}>{activeProject?.name}</h1>
-            <p className={styles.pageSub}>管理者ダッシュボード</p>
+            <p className={styles.pageSub}>{roleLabel}</p>
           </div>
 
           {/* 全体進捗カード */}
@@ -341,6 +505,19 @@ export default function DashboardPage() {
             <div className={styles.card}>
               <div className={styles.filesTopRow}>
                 <div className={styles.filesTitle}>テストファイル一覧</div>
+                {canEdit && (
+                  <button
+                    className={styles.btnImport}
+                    onClick={() => setIsUploadModalOpen(true)}
+                  >
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                      <polyline points="17 8 12 3 7 8"></polyline>
+                      <line x1="12" y1="3" x2="12" y2="15"></line>
+                    </svg>
+                    ファイル読込
+                  </button>
+                )}
               </div>
               <div className={styles.filesHead}>
                 <div className={styles.searchBox}>
@@ -411,28 +588,39 @@ export default function DashboardPage() {
                 <table className={styles.filesTable} ref={tableRef}>
                   <thead>
                     <tr>
-                      <th style={{ width: `${columnWidths[0]}%` }}>
+                      <th style={{ width: `${effectiveColumnWidths[0]}%` }}>
                         ファイル名
                         <div
                           className={styles.resizeHandle}
                           onMouseDown={(e) => handleResizeStart(0, e)}
                         />
                       </th>
-                      <th style={{ width: `${columnWidths[1]}%` }}>
+                      <th style={{ width: `${effectiveColumnWidths[1]}%` }}>
                         進捗
                         <div
                           className={styles.resizeHandle}
                           onMouseDown={(e) => handleResizeStart(1, e)}
                         />
                       </th>
-                      <th style={{ width: `${columnWidths[2]}%` }}>
+                      <th style={{ width: `${effectiveColumnWidths[2]}%` }}>
                         最終更新
                         <div
                           className={styles.resizeHandle}
                           onMouseDown={(e) => handleResizeStart(2, e)}
                         />
                       </th>
-                      <th style={{ width: `${columnWidths[3]}%` }}>最終更新者</th>
+                      <th style={{ width: `${effectiveColumnWidths[3]}%` }}>
+                        最終更新者
+                        {canEdit && (
+                          <div
+                            className={styles.resizeHandle}
+                            onMouseDown={(e) => handleResizeStart(3, e)}
+                          />
+                        )}
+                      </th>
+                      {canEdit && (
+                        <th style={{ width: `${effectiveColumnWidths[4]}%` }}></th>
+                      )}
                     </tr>
                   </thead>
                   <tbody>
@@ -461,6 +649,16 @@ export default function DashboardPage() {
                         </td>
                         <td><div className={styles.metaText}>{file.updatedAt}</div></td>
                         <td><div className={styles.metaName}>{file.updatedBy}</div></td>
+                        {canEdit && (
+                          <td>
+                            <div
+                              className={styles.actionDots}
+                              onClick={(e) => handleRowMenuClick(e, file)}
+                            >
+                              ⋯
+                            </div>
+                          </td>
+                        )}
                       </tr>
                     ))}
                   </tbody>
@@ -475,8 +673,8 @@ export default function DashboardPage() {
         </>
       )}
 
-      {/* ===== プロジェクト設定ビュー ===== */}
-      {activeNav === 'settings' && (
+      {/* ===== プロジェクト設定ビュー（管理者のみ） ===== */}
+      {activeNav === 'settings' && canManage && (
         <>
           <div className={styles.pageHead}>
             <h1 className={styles.pageTitle}>{activeProject?.name}</h1>
@@ -664,6 +862,72 @@ export default function DashboardPage() {
         </>
       )}
 
+      {/* ===== 行メニュー（管理者・テスターのみ） ===== */}
+      {rowMenuFile && canEdit && (
+        <div
+          className={styles.rowMenu}
+          style={{ top: rowMenuPosition.top, left: rowMenuPosition.left }}
+        >
+          <div className={styles.rowMenuItem} onClick={handleUnregisterClick}>
+            登録を取り消す
+          </div>
+        </div>
+      )}
+
+      {/* ===== 登録取消確認モーダル ===== */}
+      {cancelConfirmFile && (
+        <div
+          className={styles.modalOverlay}
+          onClick={() => setCancelConfirmFile(null)}
+        >
+          <div className={styles.modalBox} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.modalTitle}>登録を取り消しますか？</div>
+            <p className={styles.modalDesc}>この操作は取り消すことができません。よろしいですか？</p>
+            <div className={styles.modalTarget}>
+              対象ファイル: <b>{cancelConfirmFile.name}</b>
+            </div>
+            <div className={styles.modalActions}>
+              <button
+                className={styles.btnMini}
+                onClick={() => setCancelConfirmFile(null)}
+              >
+                キャンセル
+              </button>
+              <button
+                className={styles.btnDanger}
+                onClick={confirmUnregister}
+              >
+                登録を取り消す
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== 登録取消不可モーダル ===== */}
+      {cancelBlockedFile && (
+        <div
+          className={styles.modalOverlay}
+          onClick={() => setCancelBlockedFile(null)}
+        >
+          <div className={styles.modalBox} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.modalTitle}>登録を取り消せません</div>
+            <p className={styles.modalDesc}>このファイルには更新履歴が存在するため、登録を取り消せません。</p>
+            <div className={styles.modalTarget}>
+              対象ファイル: <b>{cancelBlockedFile.name}</b>
+            </div>
+            <div className={styles.modalActions}>
+              <button
+                className={`${styles.btnMini} ${styles.btnMiniPrimary}`}
+                onClick={() => setCancelBlockedFile(null)}
+              >
+                閉じる
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ===== プロジェクト作成モーダル ===== */}
       {isCreateProjectModalOpen && (
         <div
@@ -717,9 +981,10 @@ export default function DashboardPage() {
                     return;
                   }
 
-                  const newProject = {
+                  const newProject: Project = {
                     id: String(Date.now()),
                     name: trimmed,
+                    role: '管理者',
                   };
                   setProjects(prev => [...prev, newProject]);
                   setActiveProjectId(newProject.id);
@@ -859,7 +1124,6 @@ export default function DashboardPage() {
               <button
                 className={styles.btnDanger}
                 onClick={() => {
-                  // プロジェクトを終了済みにする（実際のAPI実装後は削除）
                   setProjects(prev => prev.filter(p => p.id !== activeProjectId));
                   if (projects.length > 1) {
                     const remaining = projects.filter(p => p.id !== activeProjectId);
@@ -872,6 +1136,209 @@ export default function DashboardPage() {
                 プロジェクトを終了
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== ファイル読込モーダル（管理者・テスターのみ） ===== */}
+      {isUploadModalOpen && canEdit && (
+        <div
+          className={styles.modalOverlay}
+          onClick={closeUploadModal}
+        >
+          <div
+            className={`${styles.modalBox} ${styles.modalBoxWide}`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* ===== 選択ビュー ===== */}
+            {uploadView === 'select' && (
+              <div>
+                <div className={styles.modalTitle}>テストファイルを読み込む</div>
+
+                <div
+                  className={`${styles.dropzone} ${isDragOver ? styles.dropzoneDragover : ''}`}
+                  onClick={() => fileInputRef.current?.click()}
+                  onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragOver(true); }}
+                  onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragOver(true); }}
+                  onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragOver(false); }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setIsDragOver(false);
+                    if (e.dataTransfer.files.length > 0) {
+                      handleFilesSelected(e.dataTransfer.files);
+                    }
+                  }}
+                >
+                  <div className={styles.dropzoneIcon}>
+                    <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M4 14.9A5 5 0 0 1 6 5.3 6 6 0 0 1 17 6a4.5 4.5 0 0 1 1 8.9"></path>
+                      <polyline points="9 15 12 12 15 15"></polyline>
+                      <line x1="12" y1="12" x2="12" y2="21"></line>
+                    </svg>
+                  </div>
+                  <div className={styles.dropzoneText}>ここにファイルをドラッグ&ドロップ</div>
+                  <div className={styles.dropzoneText}>
+                    または <span className={styles.dropzoneLink}>ファイルを選択</span>
+                  </div>
+                  <div className={styles.dropzoneSub}>複数ファイルを一括で選択できます</div>
+                </div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  accept=".xlsx,.xls"
+                  style={{ display: 'none' }}
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files.length > 0) {
+                      handleFilesSelected(e.target.files);
+                    }
+                  }}
+                />
+
+                <div className={styles.uploadNote}>
+                  対応形式: .xlsx, .xls。同名ファイルは既存ファイルの更新として扱われます。
+                </div>
+
+                <div className={styles.modalActions}>
+                  <button className={styles.btnMini} onClick={closeUploadModal}>
+                    キャンセル
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* ===== 確認ビュー ===== */}
+            {uploadView === 'confirm' && (
+              <div>
+                <div className={styles.modalTitle}>読み込み内容の確認</div>
+                <p className={styles.modalDesc}>以下の内容でファイルを読み込みます。</p>
+
+                <div className={styles.confirmList}>
+                  {uploadFiles.map((f, i) => (
+                    <div key={i} className={styles.confirmRow}>
+                      <div className={styles.confirmRowTop}>
+                        <div className={styles.confirmFileName}>{f.name}</div>
+                        {f.status === 'new' && (
+                          <span className={`${styles.confirmBadge} ${styles.confirmBadgeNew}`}>新規</span>
+                        )}
+                        {f.status === 'update' && (
+                          <span className={`${styles.confirmBadge} ${styles.confirmBadgeUpdate}`}>更新</span>
+                        )}
+                        {f.status === 'error' && (
+                          <span className={`${styles.confirmBadge} ${styles.confirmBadgeError}`}>エラー</span>
+                        )}
+                      </div>
+                      {f.status === 'new' && (
+                        <div className={styles.confirmDetail}>新規ファイルとして登録されます</div>
+                      )}
+                      {f.status === 'update' && (
+                        <div className={styles.confirmDetailRow}>
+                          <span>進捗: {f.before}% → {f.after}%</span>
+                          <span className={styles.confirmSep}></span>
+                          <span>最終更新: {f.updated} {f.updater}</span>
+                        </div>
+                      )}
+                      {f.status === 'error' && (
+                        <div className={styles.confirmErrorReason}>{f.reason}</div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {uploadErrorCount > 0 && uploadValidCount === 0 && (
+                  <div className={`${styles.confirmSummary} ${styles.confirmSummaryAllError}`}>
+                    すべてのファイルがエラーのため読み込めません。
+                  </div>
+                )}
+                {uploadErrorCount > 0 && uploadValidCount > 0 && (
+                  <div className={`${styles.confirmSummary} ${styles.confirmSummaryHasError}`}>
+                    エラーの{uploadErrorCount}件はスキップされ、正常な{uploadValidCount}件のみ読み込まれます。
+                  </div>
+                )}
+
+                <div className={styles.modalActions}>
+                  <button
+                    className={styles.btnMini}
+                    onClick={() => {
+                      setUploadView('select');
+                      setUploadFiles([]);
+                      if (fileInputRef.current) fileInputRef.current.value = '';
+                    }}
+                  >
+                    ファイルを選び直す
+                  </button>
+                  <button
+                    className={`${styles.btnMini} ${styles.btnMiniPrimary}`}
+                    disabled={uploadValidCount === 0}
+                    onClick={executeImport}
+                  >
+                    {uploadValidCount === 0 ? 'この内容で読み込む' : (uploadErrorCount > 0 ? `正常な${uploadValidCount}件を読み込む` : 'この内容で読み込む')}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* ===== 結果ビュー ===== */}
+            {uploadView === 'result' && (
+              <div>
+                <div className={styles.modalTitle}>読み込み結果</div>
+                <p className={styles.modalDesc}>
+                  {uploadFailCount === 0
+                    ? `${uploadSuccessCount}件のファイルを読み込みました。`
+                    : `${uploadSuccessCount}件を読み込みました。${uploadFailCount}件は登録/更新されていません。`
+                  }
+                </p>
+
+                <div className={styles.confirmList}>
+                  {uploadFiles.map((f, i) => (
+                    <div key={i} className={styles.confirmRow}>
+                      <div className={styles.confirmRowTop}>
+                        <div className={styles.confirmFileName}>{f.name}</div>
+                        {f.resultStatus === 'success' && (
+                          <span className={`${styles.confirmBadge} ${styles.confirmBadgeSuccess}`}>成功</span>
+                        )}
+                        {(f.resultStatus === 'error' || f.resultStatus === 'conflict') && (
+                          <span className={`${styles.confirmBadge} ${styles.confirmBadgeError}`}>エラー</span>
+                        )}
+                      </div>
+                      {f.resultStatus === 'success' && (
+                        <div className={styles.confirmDetail}>
+                          {f.status === 'new' ? '新規登録' : '更新完了'}
+                        </div>
+                      )}
+                      {f.resultStatus === 'conflict' && (
+                        <div className={styles.confirmErrorReason}>
+                          このファイルは確認後に別ユーザーによって更新されました。最新状態を確認して再度実行してください。
+                        </div>
+                      )}
+                      {f.resultStatus === 'error' && (
+                        <div className={styles.confirmErrorReason}>{f.reason}</div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                <div className={styles.modalActions}>
+                  <button
+                    className={styles.btnMini}
+                    onClick={() => {
+                      setUploadView('select');
+                      setUploadFiles([]);
+                      if (fileInputRef.current) fileInputRef.current.value = '';
+                    }}
+                  >
+                    ファイルを再選択
+                  </button>
+                  <button
+                    className={`${styles.btnMini} ${styles.btnMiniPrimary}`}
+                    onClick={closeUploadModal}
+                  >
+                    閉じる
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
