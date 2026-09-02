@@ -30,7 +30,7 @@ type ProjectDetail = {
 type FileData = {
   id: string;
   name: string;
-  progress: number;
+  progress: number | null;
   updatedAt: string;
   updatedBy: string;
   hasHistory: boolean;
@@ -52,21 +52,38 @@ const MOCK_PROJECTS: Project[] = [
   { id: '1', name: 'ECサイトリニューアル 総合テスト', role: '管理者' },
   { id: '2', name: '基幹システム移行プロジェクト Phase2', role: 'テスター' },
   { id: '3', name: 'モバイルアプリ v3.0 受け入れテスト', role: '閲覧者' },
+  { id: '4', name: '新規プロジェクト（ファイル0件）', role: '管理者' },
+  { id: '5', name: 'テストケース0件プロジェクト', role: 'テスター' },
 ];
 
-const MOCK_FILES: FileData[] = [
-  { id: '1', name: 'EC機能テスト仕様書_v2.3.xlsx', progress: 95, updatedAt: '2026/08/30 18:42', updatedBy: '田中 美咲', hasHistory: true },
-  { id: '2', name: 'EC_API結合テスト仕様書_v1.5.xlsx', progress: 88, updatedAt: '2026/08/29 14:15', updatedBy: '山田 太郎', hasHistory: true },
-  { id: '3', name: 'EC_決済フロー検証テスト_v1.0.xlsx', progress: 72, updatedAt: '2026/08/28 11:07', updatedBy: '鈴木 健一', hasHistory: true },
-  { id: '4', name: 'EC_管理画面テスト仕様書_v3.1.xlsx', progress: 41, updatedAt: '2026/08/27 16:30', updatedBy: '佐藤 花子', hasHistory: true },
-  { id: '5', name: 'EC_レスポンシブUI確認テスト_詳細版_v2.0.xlsx', progress: 0, updatedAt: '2026/08/25 09:20', updatedBy: '高橋 裕子', hasHistory: false },
-];
+// プロジェクトごとのファイルデータ
+const MOCK_FILES_BY_PROJECT: Record<string, FileData[]> = {
+  '1': [
+    { id: '1', name: 'EC機能テスト仕様書_v2.3.xlsx', progress: 95, updatedAt: '2026/08/30 18:42', updatedBy: '田中 美咲', hasHistory: true },
+    { id: '2', name: 'EC_API結合テスト仕様書_v1.5.xlsx', progress: 88, updatedAt: '2026/08/29 14:15', updatedBy: '山田 太郎', hasHistory: true },
+    { id: '3', name: 'EC_決済フロー検証テスト_v1.0.xlsx', progress: 72, updatedAt: '2026/08/28 11:07', updatedBy: '鈴木 健一', hasHistory: true },
+    { id: '4', name: 'EC_管理画面テスト仕様書_v3.1.xlsx', progress: 41, updatedAt: '2026/08/27 16:30', updatedBy: '佐藤 花子', hasHistory: true },
+    { id: '5', name: 'EC_レスポンシブUI確認テスト_詳細版_v2.0.xlsx', progress: 0, updatedAt: '2026/08/25 09:20', updatedBy: '高橋 裕子', hasHistory: false },
+  ],
+  '2': [
+    { id: '1', name: '基幹システム_結合テスト仕様書_v1.0.xlsx', progress: 60, updatedAt: '2026/08/28 10:00', updatedBy: '山田 太郎', hasHistory: true },
+  ],
+  '3': [
+    { id: '1', name: 'モバイルアプリ_UIテスト仕様書_v3.0.xlsx', progress: 100, updatedAt: '2026/08/27 15:30', updatedBy: '鈴木 健一', hasHistory: true },
+  ],
+  '4': [], // ファイル0件
+  '5': [
+    { id: '1', name: 'テストケース未定義_企画メモ_v0.1.xlsx', progress: null, updatedAt: '2026/08/31 10:05', updatedBy: '田中 美咲', hasHistory: false },
+  ], // テストケース0件
+};
 
-const MOCK_STATS = {
-  total: 248,
-  ok: 162,
-  ng: 19,
-  pending: 67,
+// プロジェクトごとの統計データ
+const stats_BY_PROJECT: Record<string, { total: number; ok: number; ng: number; pending: number }> = {
+  '1': { total: 248, ok: 162, ng: 19, pending: 67 },
+  '2': { total: 50, ok: 30, ng: 5, pending: 15 },
+  '3': { total: 100, ok: 100, ng: 0, pending: 0 },
+  '4': { total: 0, ok: 0, ng: 0, pending: 0 }, // ファイル0件
+  '5': { total: 0, ok: 0, ng: 0, pending: 0 }, // テストケース0件
 };
 
 const MOCK_MEMBERS = [
@@ -103,7 +120,8 @@ export default function DashboardPage() {
   const [displayLimit, setDisplayLimit] = useState<5 | 10 | 'all'>(5);
   const [isSortMenuOpen, setIsSortMenuOpen] = useState(false);
   const [draggingId, setDraggingId] = useState<string | null>(null);
-  const [files, setFiles] = useState(MOCK_FILES);
+  const [files, setFiles] = useState<FileData[]>(MOCK_FILES_BY_PROJECT['1'] || []);
+  const [stats, setStats] = useState(stats_BY_PROJECT['1']);
 
   // プロジェクト設定
   const [members, setMembers] = useState(MOCK_MEMBERS);
@@ -140,13 +158,12 @@ export default function DashboardPage() {
   // タブ表示用のプロジェクト情報（一覧APIから取得したキャッシュ）
   const activeProjectFromList = projects.find(p => p.id === activeProjectId);
 
-  // プロジェクト切替時に最新のロールを取得（仕様書2-4）
+  // プロジェクト切替時に最新のロール・ファイル・統計を取得（仕様書2-4）
   useEffect(() => {
     const fetchProjectDetail = async () => {
       setIsLoadingProject(true);
 
       // API未実装のため仮実装（実際は GET /api/projects/:id を呼ぶ）
-      // 他の管理者によるロール変更をシミュレートするため、一覧とは別にロールを返す
       await new Promise(resolve => setTimeout(resolve, 100));
 
       const project = MOCK_PROJECTS.find(p => p.id === activeProjectId);
@@ -156,6 +173,9 @@ export default function DashboardPage() {
           name: project.name,
           role: project.role,
         });
+        // プロジェクトごとのファイルと統計を設定
+        setFiles(MOCK_FILES_BY_PROJECT[activeProjectId] || []);
+        setStats(stats_BY_PROJECT[activeProjectId] || { total: 0, ok: 0, ng: 0, pending: 0 });
       }
 
       setIsLoadingProject(false);
@@ -244,7 +264,23 @@ export default function DashboardPage() {
     }
   }, [activeProjectId, currentRole]);
 
-  const progressPercent = Math.round((MOCK_STATS.ok + MOCK_STATS.ng) / MOCK_STATS.total * 100);
+  // 空状態の判定
+  const hasFiles = files.length > 0;
+  const hasTestCases = stats.total > 0;
+
+  // 進捗率の計算（テストケース0件の場合はNaN回避）
+  const progressPercent = hasTestCases
+    ? Math.round((stats.ok + stats.ng) / stats.total * 100)
+    : 0;
+
+  // パーセント表示（テストケース0件の場合は「—」）
+  const progressDisplay = hasTestCases ? String(progressPercent) : '—';
+  const showPercentSign = hasTestCases;
+
+  // ドーナツのパーセント計算
+  const okPercent = hasTestCases ? Math.round(stats.ok / stats.total * 100) : 0;
+  const ngPercent = hasTestCases ? Math.round(stats.ng / stats.total * 100) : 0;
+  const pendingPercent = hasTestCases ? Math.round(stats.pending / stats.total * 100) : 0;
 
   // タブのドラッグ&ドロップ
   const handleDragStart = (e: React.DragEvent, projectId: string) => {
@@ -271,13 +307,13 @@ export default function DashboardPage() {
     setProjects(newProjects);
   };
 
-  const okPercent = Math.round(MOCK_STATS.ok / MOCK_STATS.total * 100);
-  const ngPercent = Math.round(MOCK_STATS.ng / MOCK_STATS.total * 100);
-  const pendingPercent = Math.round(MOCK_STATS.pending / MOCK_STATS.total * 100);
-
-  const filteredFiles = files.filter(file => {
+  const filteredFiles = files.filter((file: FileData) => {
     if (searchQuery && !file.name.toLowerCase().includes(searchQuery.toLowerCase())) {
       return false;
+    }
+    // progressがnullの場合は「すべて」のみ表示
+    if (file.progress === null) {
+      return filterSegment === 'all';
     }
     if (filterSegment === 'incomplete' && file.progress === 100) {
       return false;
@@ -340,8 +376,9 @@ export default function DashboardPage() {
       };
 
       if (item.status === 'update' && existingFile) {
-        item.before = existingFile.progress;
-        item.after = Math.min(100, existingFile.progress + 5 + Math.floor(Math.random() * 10));
+        const currentProgress = existingFile.progress ?? 0;
+        item.before = currentProgress;
+        item.after = Math.min(100, currentProgress + 5 + Math.floor(Math.random() * 10));
         item.updated = existingFile.updatedAt;
         item.updater = existingFile.updatedBy;
       }
@@ -478,14 +515,14 @@ export default function DashboardPage() {
           <div className={`${styles.card} ${styles.progressCard}`}>
             <div className={styles.progressLabel}>全体進捗</div>
             <div className={styles.progressMain}>
-              <span className={styles.progressValue}>{progressPercent}</span>
-              <span className={styles.progressPercent}>%</span>
+              <span className={styles.progressValue}>{progressDisplay}</span>
+              {showPercentSign && <span className={styles.progressPercent}>%</span>}
             </div>
-            <div className={styles.progressTrack}>
+            <div className={`${styles.progressTrack} ${!hasTestCases ? styles.progressTrackEmpty : ''}`}>
               <div className={styles.progressFill} style={{ width: `${progressPercent}%` }}></div>
             </div>
             <div className={styles.progressCaption}>
-              {MOCK_STATS.ok + MOCK_STATS.ng} / {MOCK_STATS.total} 件 実施済み
+              {stats.ok + stats.ng} / {stats.total} 件 実施済み
             </div>
           </div>
 
@@ -496,17 +533,17 @@ export default function DashboardPage() {
               <div className={styles.cardLabel}>実施状況の内訳</div>
               <div className={styles.donutWrap}>
                 <div
-                  className={styles.donut}
-                  style={{
+                  className={`${styles.donut} ${!hasTestCases ? styles.donutEmpty : ''}`}
+                  style={hasTestCases ? {
                     background: `conic-gradient(
                       var(--accent) 0deg ${okPercent * 3.6}deg,
                       var(--fail) ${okPercent * 3.6}deg ${(okPercent + ngPercent) * 3.6}deg,
                       var(--pending) ${(okPercent + ngPercent) * 3.6}deg 360deg
                     )`
-                  }}
+                  } : undefined}
                 >
                   <div className={styles.donutCenter}>
-                    <b>{MOCK_STATS.total}</b>
+                    <b>{stats.total}</b>
                     <span>件</span>
                   </div>
                 </div>
@@ -517,7 +554,7 @@ export default function DashboardPage() {
                   OK
                 </div>
                 <div className={styles.legendFigures}>
-                  <span className={styles.legendNum}>{MOCK_STATS.ok}件</span>
+                  <span className={styles.legendNum}>{stats.ok}件</span>
                   <span className={styles.legendPct}>{okPercent}%</span>
                 </div>
               </div>
@@ -527,7 +564,7 @@ export default function DashboardPage() {
                   NG
                 </div>
                 <div className={styles.legendFigures}>
-                  <span className={styles.legendNum}>{MOCK_STATS.ng}件</span>
+                  <span className={styles.legendNum}>{stats.ng}件</span>
                   <span className={styles.legendPct}>{ngPercent}%</span>
                 </div>
               </div>
@@ -537,7 +574,7 @@ export default function DashboardPage() {
                   未実施
                 </div>
                 <div className={styles.legendFigures}>
-                  <span className={styles.legendNum}>{MOCK_STATS.pending}件</span>
+                  <span className={styles.legendNum}>{stats.pending}件</span>
                   <span className={styles.legendPct}>{pendingPercent}%</span>
                 </div>
               </div>
@@ -675,18 +712,24 @@ export default function DashboardPage() {
                         </td>
                         <td>
                           <div className={styles.progWrap}>
-                            <div className={styles.progBar}>
-                              <span style={{
-                                width: `${file.progress}%`,
-                                background: file.progress === 0 ? 'var(--border)' : undefined
-                              }}></span>
-                            </div>
-                            <div
-                              className={styles.progPct}
-                              style={{ color: file.progress === 0 ? 'var(--text-faint)' : undefined }}
-                            >
-                              {file.progress}%
-                            </div>
+                            {file.progress !== null ? (
+                              <>
+                                <div className={styles.progBar}>
+                                  <span style={{
+                                    width: `${file.progress}%`,
+                                    background: file.progress === 0 ? 'var(--border)' : undefined
+                                  }}></span>
+                                </div>
+                                <div
+                                  className={styles.progPct}
+                                  style={{ color: file.progress === 0 ? 'var(--text-faint)' : undefined }}
+                                >
+                                  {file.progress}%
+                                </div>
+                              </>
+                            ) : (
+                              <span className={styles.progDash}>—</span>
+                            )}
                           </div>
                         </td>
                         <td><div className={styles.metaText}>{file.updatedAt}</div></td>
