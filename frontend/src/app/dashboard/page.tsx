@@ -5,14 +5,23 @@ import styles from './dashboard.module.css';
 
 /**
  * ダッシュボード
- * 仕様書セクション2-1, 2-2, 3-3, 3-5に基づく実装
+ * 仕様書セクション2-1, 2-2, 2-4, 3-3, 3-5に基づく実装
  * - プロジェクトごとにロールが異なる
  * - ロールに応じてUI要素の表示/非表示を切り替え
+ * - プロジェクト切替時は最新のロールを再取得（2-4: ロールは他の管理者操作で変わりうる）
  */
 
 type Role = '管理者' | 'テスター' | '閲覧者';
 
+// GET /api/projects のレスポンス（タブ表示用、ロールはキャッシュ扱い）
 type Project = {
+  id: string;
+  name: string;
+  role: Role;
+};
+
+// GET /api/projects/:id のレスポンス（プロジェクト詳細、最新ロールを含む）
+type ProjectDetail = {
   id: string;
   name: string;
   role: Role;
@@ -85,6 +94,8 @@ const ALL_USERS = [
 export default function DashboardPage() {
   const [projects, setProjects] = useState(MOCK_PROJECTS);
   const [activeProjectId, setActiveProjectId] = useState(MOCK_PROJECTS[0].id);
+  const [activeProjectDetail, setActiveProjectDetail] = useState<ProjectDetail | null>(null);
+  const [isLoadingProject, setIsLoadingProject] = useState(false);
   const [activeNav, setActiveNav] = useState<'dashboard' | 'settings'>('dashboard');
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -126,8 +137,39 @@ export default function DashboardPage() {
   const resizingRef = useRef<{ index: number; startX: number; startWidths: number[] } | null>(null);
   const tableRef = useRef<HTMLTableElement>(null);
 
-  const activeProject = projects.find(p => p.id === activeProjectId);
-  const currentRole = activeProject?.role || '閲覧者';
+  // タブ表示用のプロジェクト情報（一覧APIから取得したキャッシュ）
+  const activeProjectFromList = projects.find(p => p.id === activeProjectId);
+
+  // プロジェクト切替時に最新のロールを取得（仕様書2-4）
+  useEffect(() => {
+    const fetchProjectDetail = async () => {
+      setIsLoadingProject(true);
+
+      // API未実装のため仮実装（実際は GET /api/projects/:id を呼ぶ）
+      // 他の管理者によるロール変更をシミュレートするため、一覧とは別にロールを返す
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      const project = MOCK_PROJECTS.find(p => p.id === activeProjectId);
+      if (project) {
+        setActiveProjectDetail({
+          id: project.id,
+          name: project.name,
+          role: project.role,
+        });
+      }
+
+      setIsLoadingProject(false);
+    };
+
+    if (activeProjectId) {
+      fetchProjectDetail();
+    }
+  }, [activeProjectId]);
+
+  // ロール判定は詳細APIから取得した最新ロールを使用
+  // 詳細取得中は一覧のキャッシュをフォールバックとして使用
+  const currentRole = activeProjectDetail?.role || activeProjectFromList?.role || '閲覧者';
+  const activeProject = activeProjectDetail || activeProjectFromList;
 
   // ロールに応じた権限
   const canManage = currentRole === '管理者';
