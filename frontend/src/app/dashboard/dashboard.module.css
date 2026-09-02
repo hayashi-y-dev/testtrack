@@ -359,6 +359,11 @@
   display: grid;
   grid-template-columns: 300px 1fr;
   gap: 16px;
+  align-items: stretch;
+}
+
+.mainGrid > .card {
+  height: 100%;
 }
 
 /* ===== ドーナツチャート ===== */
