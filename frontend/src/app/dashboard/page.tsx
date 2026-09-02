@@ -33,6 +33,16 @@ const MOCK_STATS = {
   pending: 67,
 };
 
+const MOCK_MEMBERS = [
+  { id: '1', name: '佐藤 花子', email: 'hanako.sato@example.com', role: '管理者' as const, isCurrentUser: true },
+  { id: '2', name: '田中 美咲', email: 'misaki.tanaka@example.com', role: 'テスター' as const, isCurrentUser: false },
+  { id: '3', name: '山田 太郎', email: 'taro.yamada@example.com', role: 'テスター' as const, isCurrentUser: false },
+  { id: '4', name: '鈴木 健一', email: 'kenichi.suzuki@example.com', role: 'テスター' as const, isCurrentUser: false },
+  { id: '5', name: '高橋 裕子', email: 'yuko.takahashi@example.com', role: '閲覧者' as const, isCurrentUser: false },
+];
+
+type Role = '管理者' | 'テスター' | '閲覧者';
+
 export default function DashboardPage() {
   const [projects, setProjects] = useState(MOCK_PROJECTS);
   const [activeProjectId, setActiveProjectId] = useState(MOCK_PROJECTS[0].id);
@@ -43,6 +53,12 @@ export default function DashboardPage() {
   const [displayLimit, setDisplayLimit] = useState<5 | 10 | 'all'>(5);
   const [isSortMenuOpen, setIsSortMenuOpen] = useState(false);
   const [draggingId, setDraggingId] = useState<string | null>(null);
+
+  // プロジェクト設定
+  const [members, setMembers] = useState(MOCK_MEMBERS);
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [editingNameValue, setEditingNameValue] = useState('');
+  const [memberRoleEdits, setMemberRoleEdits] = useState<Record<string, Role>>({});
 
   // 列幅リサイズ機能
   const [columnWidths, setColumnWidths] = useState([40, 22, 19, 19]); // %単位
@@ -432,13 +448,181 @@ export default function DashboardPage() {
         </>
       )}
 
-      {/* ===== プロジェクト設定ビュー（次回実装） ===== */}
+      {/* ===== プロジェクト設定ビュー ===== */}
       {activeNav === 'settings' && (
-        <div className={styles.pageHead}>
-          <h1 className={styles.pageTitle}>{activeProject?.name}</h1>
-          <p className={styles.pageSub}>プロジェクト設定</p>
-          <p className={styles.settingsPlaceholder}>（設定画面は次回実装）</p>
-        </div>
+        <>
+          <div className={styles.pageHead}>
+            <h1 className={styles.pageTitle}>{activeProject?.name}</h1>
+            <p className={styles.pageSub}>プロジェクト設定</p>
+          </div>
+
+          {/* 基本情報 */}
+          <div className={`${styles.card} ${styles.settingsSection}`}>
+            <div className={styles.settingsSectionTitle}>基本情報</div>
+
+            <div className={styles.settingsRow}>
+              <div className={styles.settingsLabel}>プロジェクト名</div>
+              {!isEditingName ? (
+                <div className={styles.settingsValue}>
+                  <span>{activeProject?.name}</span>
+                  <span
+                    className={styles.editIcon}
+                    onClick={() => {
+                      setEditingNameValue(activeProject?.name || '');
+                      setIsEditingName(true);
+                    }}
+                  >
+                    ✎
+                  </span>
+                </div>
+              ) : (
+                <div className={styles.settingsValueEdit}>
+                  <input
+                    type="text"
+                    value={editingNameValue}
+                    onChange={(e) => setEditingNameValue(e.target.value)}
+                    maxLength={50}
+                  />
+                  <button
+                    className={`${styles.btnMini} ${styles.btnMiniPrimary}`}
+                    onClick={() => {
+                      if (editingNameValue.trim() && activeProject) {
+                        setProjects(prev => prev.map(p =>
+                          p.id === activeProject.id ? { ...p, name: editingNameValue.trim() } : p
+                        ));
+                      }
+                      setIsEditingName(false);
+                    }}
+                  >
+                    保存
+                  </button>
+                  <button
+                    className={styles.btnMini}
+                    onClick={() => setIsEditingName(false)}
+                  >
+                    キャンセル
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div className={styles.settingsRow}>
+              <div className={styles.settingsLabel}>ステータス</div>
+              <div className={styles.settingsValue}>
+                <span className={styles.statusPill}>進行中</span>
+              </div>
+            </div>
+
+            <div className={styles.settingsRow}>
+              <div className={styles.settingsLabel}>参加メンバー数</div>
+              <div className={styles.settingsValue}>{members.length}名</div>
+            </div>
+
+            <div className={`${styles.settingsRow} ${styles.settingsRowLast}`}>
+              <div className={styles.settingsLabel}>作成日</div>
+              <div className={styles.settingsValue}>2026年3月15日</div>
+            </div>
+          </div>
+
+          {/* メンバー管理 */}
+          <div className={`${styles.card} ${styles.settingsSection}`}>
+            <div className={styles.settingsSectionHead}>
+              <div className={styles.settingsSectionTitle}>メンバー管理</div>
+              <button className={styles.btnSecondary}>＋ メンバーを追加</button>
+            </div>
+
+            <table className={styles.memberTable}>
+              <thead>
+                <tr>
+                  <th style={{ width: '44%' }}>メンバー</th>
+                  <th style={{ width: '20%' }}>ロール</th>
+                  <th style={{ width: '36%' }}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {members.map(member => {
+                  const editedRole = memberRoleEdits[member.id];
+                  const hasRoleChange = editedRole && editedRole !== member.role;
+                  const adminCount = members.filter(m => m.role === '管理者').length;
+                  const canLeave = !(member.isCurrentUser && member.role === '管理者' && adminCount <= 1);
+
+                  return (
+                    <tr key={member.id}>
+                      <td>
+                        <div className={styles.memberName}>
+                          {member.name}
+                          {member.isCurrentUser && <span className={styles.youBadge}>あなた</span>}
+                        </div>
+                        <div className={styles.memberEmail}>{member.email}</div>
+                      </td>
+                      <td>
+                        {member.isCurrentUser && member.role === '管理者' ? (
+                          <span className={`${styles.rolePill} ${styles.roleAdmin}`}>管理者</span>
+                        ) : (
+                          <div className={styles.roleCell}>
+                            <select
+                              className={styles.roleSelect}
+                              value={editedRole || member.role}
+                              onChange={(e) => setMemberRoleEdits(prev => ({
+                                ...prev,
+                                [member.id]: e.target.value as Role
+                              }))}
+                            >
+                              <option value="管理者">管理者</option>
+                              <option value="テスター">テスター</option>
+                              <option value="閲覧者">閲覧者</option>
+                            </select>
+                            {hasRoleChange && (
+                              <button
+                                className={`${styles.btnMini} ${styles.btnMiniPrimary}`}
+                                onClick={() => {
+                                  setMembers(prev => prev.map(m =>
+                                    m.id === member.id ? { ...m, role: editedRole } : m
+                                  ));
+                                  setMemberRoleEdits(prev => {
+                                    const next = { ...prev };
+                                    delete next[member.id];
+                                    return next;
+                                  });
+                                }}
+                              >
+                                保存
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </td>
+                      <td className={styles.memberActions}>
+                        {member.isCurrentUser ? (
+                          <button
+                            className={styles.btnMini}
+                            disabled={!canLeave}
+                            title={!canLeave ? '他に管理者がいないため離脱できません' : undefined}
+                          >
+                            離脱
+                          </button>
+                        ) : (
+                          <button className={`${styles.btnMini} ${styles.btnMiniDanger}`}>
+                            削除
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* プロジェクト終了 */}
+          <div className={`${styles.card} ${styles.settingsSection} ${styles.settingsDanger}`}>
+            <div className={styles.settingsSectionTitle}>プロジェクト終了</div>
+            <p className={styles.settingsDangerText}>
+              終了すると更新系の操作（ファイル読込・メンバー変更など）ができなくなります。データは削除されず、閲覧専用になります。
+            </p>
+            <button className={styles.btnDanger}>プロジェクトを終了</button>
+          </div>
+        </>
       )}
     </div>
   );
