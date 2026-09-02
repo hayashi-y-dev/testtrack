@@ -1185,17 +1185,17 @@
 
 /* ===== プロジェクト終了確認モーダル ===== */
 .modalDesc {
-  font-size: 12.5px;
+  font-size: 11.5px;
   color: var(--text-muted);
   line-height: 1.7;
-  margin: 0 0 16px 0;
+  margin: 0 0 14px 0;
 }
 
 .modalTarget {
-  font-size: 12.5px;
+  font-size: 11.5px;
   color: var(--text);
   background: var(--surface-2);
-  padding: 10px 12px;
-  border-radius: 8px;
-  margin-bottom: 22px;
+  padding: 9px 11px;
+  border-radius: 7px;
+  margin-bottom: 20px;
 }
