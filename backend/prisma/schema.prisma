@@ -1,0 +1,141 @@
+// =============================================================================
+// TestTrack Prismaスキーマ
+// =============================================================================
+// DB設計仕様書: docs/db-schema.md
+// 設計判断の詳細は同ファイルの3章を参照
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// =============================================================================
+// Enum定義
+// =============================================================================
+
+enum ProjectStatus {
+  active
+  archived
+}
+
+enum ProjectRole {
+  admin
+  tester
+  viewer
+}
+
+// =============================================================================
+// テーブル定義
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// User（db-schema.md 2-1章）
+// -----------------------------------------------------------------------------
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  displayName  String   @map("display_name")  // 単一カラムとした理由: db-schema.md 3-4章
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  projectMembers    ProjectMember[]
+  testFilesUpdated  TestFile[]         @relation("TestFileUpdatedBy")
+  progressSnapshots ProgressSnapshot[] @relation("SnapshotUpdatedBy")
+
+  @@map("users")
+}
+
+// -----------------------------------------------------------------------------
+// Project（db-schema.md 2-2章）
+// -----------------------------------------------------------------------------
+model Project {
+  id        String        @id @default(uuid())
+  name      String        // 1〜50文字、前後空白除去はAPI側でバリデーション
+  status    ProjectStatus @default(active)
+  createdAt DateTime      @default(now()) @map("created_at")
+  updatedAt DateTime      @updatedAt @map("updated_at")
+
+  members   ProjectMember[]
+  testFiles TestFile[]
+
+  @@map("projects")
+}
+
+// -----------------------------------------------------------------------------
+// ProjectMember（db-schema.md 2-3章）
+// -----------------------------------------------------------------------------
+// どのユーザーが、どのプロジェクトに、どのロールで参加しているかを管理
+model ProjectMember {
+  id        String      @id @default(uuid())
+  userId    String      @map("user_id")
+  projectId String      @map("project_id")
+  role      ProjectRole
+  createdAt DateTime    @default(now()) @map("created_at")
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Restrict)
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  // 1ユーザー1プロジェクト1ロールの制約
+  @@unique([userId, projectId])
+  @@map("project_members")
+}
+
+// -----------------------------------------------------------------------------
+// TestFile（db-schema.md 2-4章）
+// -----------------------------------------------------------------------------
+// Excelから読み込んだテストファイルの情報と最新の集計値を保持
+// 集計値を本体に直接持たせた理由: db-schema.md 3-1章
+model TestFile {
+  id            String   @id @default(uuid())
+  projectId     String   @map("project_id")
+  name          String   // ファイル名
+  targetCount   Int      @map("target_count")   // 対象テストケース数
+  okCount       Int      @map("ok_count")
+  ngCount       Int      @map("ng_count")
+  notRunCount   Int      @map("not_run_count")  // 未実施件数
+  excludedCount Int      @map("excluded_count") // 対象外件数（「-」）
+  version       Int      @default(1)            // 楽観ロック用
+  lastUpdatedBy String   @map("last_updated_by")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  updatedBy User    @relation("TestFileUpdatedBy", fields: [lastUpdatedBy], references: [id], onDelete: Restrict)
+  // lastUpdatedByのonDelete: Restrict の理由: db-schema.md 3-5章
+  // 現MVP仕様にユーザー削除機能がないため、将来追加時に再検討
+
+  snapshots ProgressSnapshot[]
+
+  // 同一プロジェクト内でファイル名は一意
+  @@unique([projectId, name])
+  @@map("test_files")
+}
+
+// -----------------------------------------------------------------------------
+// ProgressSnapshot（db-schema.md 2-5章）
+// -----------------------------------------------------------------------------
+// テストファイルの進捗履歴。用途: db-schema.md 3-2章
+// - 登録取消可否判定（初回登録後の更新履歴有無）
+// - 将来の日別進捗推移グラフ（MVP対象外）
+// - 監査ログ的な記録
+model ProgressSnapshot {
+  id            String   @id @default(uuid())
+  testFileId    String   @map("test_file_id")
+  targetCount   Int      @map("target_count")
+  okCount       Int      @map("ok_count")
+  ngCount       Int      @map("ng_count")
+  notRunCount   Int      @map("not_run_count")
+  excludedCount Int      @map("excluded_count")
+  updatedBy     String   @map("updated_by")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  testFile TestFile @relation(fields: [testFileId], references: [id], onDelete: Cascade)
+  user     User     @relation("SnapshotUpdatedBy", fields: [updatedBy], references: [id], onDelete: Restrict)
+
+  @@map("progress_snapshots")
+}
