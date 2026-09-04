@@ -1,0 +1,21 @@
+# 依存パッケージ
+node_modules/
+
+# 環境変数
+.env
+.env.local
+.env.*.local
+
+# ビルド出力
+dist/
+
+# Prisma
+prisma/migrations/*_migration.sql
+
+# ログ
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
