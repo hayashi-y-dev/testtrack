@@ -71,11 +71,12 @@ model Project {
 // -----------------------------------------------------------------------------
 // どのユーザーが、どのプロジェクトに、どのロールで参加しているかを管理
 model ProjectMember {
-  id        String      @id @default(uuid())
-  userId    String      @map("user_id")
-  projectId String      @map("project_id")
-  role      ProjectRole
-  createdAt DateTime    @default(now()) @map("created_at")
+  id           String      @id @default(uuid())
+  userId       String      @map("user_id")
+  projectId    String      @map("project_id")
+  role         ProjectRole
+  displayOrder Int?        @map("display_order") // タブ表示順。archivedプロジェクトはNULL
+  createdAt    DateTime    @default(now()) @map("created_at")
 
   user    User    @relation(fields: [userId], references: [id], onDelete: Restrict)
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
