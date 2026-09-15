@@ -4,12 +4,13 @@ import {
   Body,
   Req,
   Res,
-  UnauthorizedException,
+  UseGuards,
   InternalServerErrorException,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { AuthService } from './auth.service.js';
 import { LoginDto } from './dto/login.dto.js';
+import { AuthGuard } from './guards/auth.guard.js';
 
 @Controller('auth')
 export class AuthController {
@@ -26,12 +27,8 @@ export class AuthController {
   }
 
   @Post('logout')
+  @UseGuards(AuthGuard)
   async logout(@Req() req: Request, @Res() res: Response) {
-    // 未ログイン状態のチェック
-    if (!req.session.userId) {
-      throw new UnauthorizedException('ログインが必要です。');
-    }
-
     // session.destroy()はコールバック形式のため、Promiseでラップ
     try {
       await new Promise<void>((resolve, reject) => {
