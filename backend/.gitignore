@@ -8,6 +8,7 @@ node_modules/
 
 # ビルド出力
 dist/
+*.tsbuildinfo
 
 # Prisma
 prisma/migrations/*_migration.sql
