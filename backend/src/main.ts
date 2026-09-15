@@ -1,5 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
+import { ValidationPipe } from '@nestjs/common';
 import session from 'express-session';
 import connectPgSimple from 'connect-pg-simple';
 import { AppModule } from './app.module.js';
@@ -24,6 +25,14 @@ async function bootstrap() {
 
   // 本番環境判定
   const isProduction = process.env.NODE_ENV === 'production';
+
+  // バリデーションパイプを設定
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      transform: true,
+    }),
+  );
 
   // セッションミドルウェアを設定
   app.use(
