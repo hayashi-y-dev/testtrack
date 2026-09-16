@@ -43,9 +43,10 @@ model User {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
-  projectMembers    ProjectMember[]
-  testFilesUpdated  TestFile[]         @relation("TestFileUpdatedBy")
-  progressSnapshots ProgressSnapshot[] @relation("SnapshotUpdatedBy")
+  projectMembers      ProjectMember[]
+  testFilesUpdated    TestFile[]            @relation("TestFileUpdatedBy")
+  progressSnapshots   ProgressSnapshot[]    @relation("SnapshotUpdatedBy")
+  passwordResetTokens PasswordResetToken[]
 
   @@map("users")
 }
@@ -153,4 +154,22 @@ model Session {
 
   @@index([expire], name: "IDX_session_expire")
   @@map("session")
+}
+
+// -----------------------------------------------------------------------------
+// PasswordResetToken（db-schema.md 2-7章）
+// -----------------------------------------------------------------------------
+// パスワード再設定用トークン。専用テーブルにした理由: db-schema.md 3-7章
+// tokenカラムにはSHA-256ハッシュ化した値を保存する（生トークンは保存しない）
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  token     String    @unique
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("password_reset_tokens")
 }
