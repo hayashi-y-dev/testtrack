@@ -58,11 +58,6 @@ export class ProjectsService {
     userId: string,
     dto: CreateProjectDto,
   ): Promise<ProjectListItem> {
-    // 空白のみのチェック（trimはDTO側で実行済み）
-    if (dto.name.length === 0) {
-      throw new NotFoundException('プロジェクト名は必須です。');
-    }
-
     // 既存の進行中プロジェクトのorder最大値を取得
     const maxOrderResult = await this.prisma.projectMember.aggregate({
       where: {
