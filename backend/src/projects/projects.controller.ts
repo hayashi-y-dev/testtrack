@@ -16,42 +16,12 @@ import { CreateProjectDto } from './dto/create-project.dto.js';
 import { UpdateProjectDto } from './dto/update-project.dto.js';
 import { UpdateOrderDto } from './dto/update-order.dto.js';
 import { AuthGuard } from '../auth/guards/auth.guard.js';
-
-interface ProjectListItem {
-  id: string;
-  name: string;
-  status: string;
-  myRole: string;
-  order: number | null;
-}
-
-interface ProjectDetail {
-  id: string;
-  name: string;
-  status: string;
-  myRole: string;
-  createdAt: Date;
-  progressSummary: {
-    fileCount: number;
-    targetCount: number;
-    completedCount: number;
-    progressRate: number | null;
-    okCount: number;
-    ngCount: number;
-    notRunCount: number;
-  };
-}
-
-interface ArchivedProject {
-  id: string;
-  name: string;
-  status: string;
-}
-
-interface OrderItem {
-  projectId: string;
-  order: number;
-}
+import type {
+  ProjectListItem,
+  ProjectDetail,
+  ArchivedProject,
+  OrderItem,
+} from './projects.types.js';
 
 @Controller('projects')
 @UseGuards(AuthGuard)
