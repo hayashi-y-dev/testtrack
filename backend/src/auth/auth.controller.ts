@@ -22,7 +22,10 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('login')
-  async login(@Body() dto: LoginDto, @Req() req: Request) {
+  async login(
+    @Body() dto: LoginDto,
+    @Req() req: Request,
+  ): Promise<{ id: string; email: string; displayName: string }> {
     const user = await this.authService.login(dto);
 
     // セッションにユーザーIDを保存
@@ -33,7 +36,10 @@ export class AuthController {
 
   @Post('logout')
   @UseGuards(AuthGuard)
-  async logout(@Req() req: Request, @Res() res: Response) {
+  async logout(
+    @Req() req: Request,
+    @Res() res: Response,
+  ): Promise<Response> {
     // session.destroy()はコールバック形式のため、Promiseでラップ
     try {
       await new Promise<void>((resolve, reject) => {
@@ -55,17 +61,21 @@ export class AuthController {
   }
 
   @Post('password-reset-request')
-  async requestPasswordReset(@Body() dto: PasswordResetRequestDto) {
+  async requestPasswordReset(
+    @Body() dto: PasswordResetRequestDto,
+  ): Promise<{ message: string }> {
     return this.authService.requestPasswordReset(dto);
   }
 
   @Post('password-reset-token/verify')
-  async verifyToken(@Body() dto: VerifyTokenDto) {
+  async verifyToken(@Body() dto: VerifyTokenDto): Promise<{ valid: boolean }> {
     return this.authService.verifyToken(dto);
   }
 
   @Post('password-reset')
-  async resetPassword(@Body() dto: PasswordResetDto) {
+  async resetPassword(
+    @Body() dto: PasswordResetDto,
+  ): Promise<{ message: string }> {
     return this.authService.resetPassword(dto);
   }
 }

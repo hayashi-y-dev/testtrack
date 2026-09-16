@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { randomBytes, createHash } from 'crypto';
 import bcrypt from 'bcrypt';
+import type { PasswordResetToken } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { LoginDto } from './dto/login.dto.js';
 import {
@@ -27,7 +28,9 @@ const INVALID_TOKEN_MESSAGE =
 export class AuthService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async login(dto: LoginDto) {
+  async login(
+    dto: LoginDto,
+  ): Promise<{ id: string; email: string; displayName: string }> {
     const user = await this.prisma.user.findUnique({
       where: { email: dto.email },
     });
@@ -50,7 +53,9 @@ export class AuthService {
     };
   }
 
-  async requestPasswordReset(dto: PasswordResetRequestDto) {
+  async requestPasswordReset(
+    dto: PasswordResetRequestDto,
+  ): Promise<{ message: string }> {
     const user = await this.prisma.user.findUnique({
       where: { email: dto.email },
     });
@@ -93,7 +98,7 @@ export class AuthService {
     };
   }
 
-  async verifyToken(dto: VerifyTokenDto) {
+  async verifyToken(dto: VerifyTokenDto): Promise<{ valid: boolean }> {
     const tokenRecord = await this.findValidToken(dto.token);
 
     if (!tokenRecord) {
@@ -103,7 +108,7 @@ export class AuthService {
     return { valid: true };
   }
 
-  async resetPassword(dto: PasswordResetDto) {
+  async resetPassword(dto: PasswordResetDto): Promise<{ message: string }> {
     // 確認用パスワードとの一致チェック
     if (dto.newPassword !== dto.confirmPassword) {
       throw new BadRequestException(['確認用パスワードと一致しません。']);
@@ -137,7 +142,9 @@ export class AuthService {
     return createHash('sha256').update(rawToken).digest('hex');
   }
 
-  private async findValidToken(rawToken: string) {
+  private async findValidToken(
+    rawToken: string,
+  ): Promise<PasswordResetToken | null> {
     const hashedToken = this.hashToken(rawToken);
 
     const tokenRecord = await this.prisma.passwordResetToken.findUnique({
