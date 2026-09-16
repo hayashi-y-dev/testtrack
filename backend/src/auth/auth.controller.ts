@@ -10,6 +10,11 @@ import {
 import type { Request, Response } from 'express';
 import { AuthService } from './auth.service.js';
 import { LoginDto } from './dto/login.dto.js';
+import {
+  PasswordResetRequestDto,
+  VerifyTokenDto,
+  PasswordResetDto,
+} from './dto/password-reset.dto.js';
 import { AuthGuard } from './guards/auth.guard.js';
 
 @Controller('auth')
@@ -47,5 +52,20 @@ export class AuthController {
     // セッションCookieを失効させる
     res.clearCookie('connect.sid');
     return res.json({ message: 'ログアウトしました。' });
+  }
+
+  @Post('password-reset-request')
+  async requestPasswordReset(@Body() dto: PasswordResetRequestDto) {
+    return this.authService.requestPasswordReset(dto);
+  }
+
+  @Post('password-reset-token/verify')
+  async verifyToken(@Body() dto: VerifyTokenDto) {
+    return this.authService.verifyToken(dto);
+  }
+
+  @Post('password-reset')
+  async resetPassword(@Body() dto: PasswordResetDto) {
+    return this.authService.resetPassword(dto);
   }
 }
