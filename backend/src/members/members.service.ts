@@ -4,8 +4,10 @@ import {
   ForbiddenException,
   BadRequestException,
 } from '@nestjs/common';
+import type { ProjectRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { AddMemberDto } from './dto/add-member.dto.js';
+import { ChangeRoleDto } from './dto/change-role.dto.js';
 import type { MemberListItem, SearchResultItem } from './members.types.js';
 
 @Injectable()
@@ -149,13 +151,129 @@ export class MembersService {
     };
   }
 
+  async changeRole(
+    userId: string,
+    projectId: string,
+    memberId: string,
+    dto: ChangeRoleDto,
+  ): Promise<MemberListItem> {
+    // メンバーシップと管理者権限を確認
+    await this.requireAdminMembership(userId, projectId);
+
+    // 対象メンバーを取得
+    const targetMember = await this.prisma.projectMember.findUnique({
+      where: { id: memberId },
+      include: {
+        user: {
+          select: { id: true, displayName: true, email: true },
+        },
+      },
+    });
+
+    if (!targetMember || targetMember.projectId !== projectId) {
+      throw new NotFoundException(
+        '指定されたプロジェクトまたはユーザーが見つかりません。',
+      );
+    }
+
+    // 自分自身のロールは変更できない
+    if (targetMember.userId === userId) {
+      throw new BadRequestException('管理者自身のロールは変更できません。');
+    }
+
+    // 変更後に管理者が0人になるかチェック
+    if (targetMember.role === 'admin' && dto.role !== 'admin') {
+      await this.checkCanRemoveAdmin(projectId, targetMember.userId);
+    }
+
+    // ロールを更新
+    const updatedMember = await this.prisma.projectMember.update({
+      where: { id: memberId },
+      data: { role: dto.role as ProjectRole },
+    });
+
+    return {
+      id: updatedMember.id,
+      userId: targetMember.user.id,
+      displayName: targetMember.user.displayName,
+      email: targetMember.user.email,
+      role: updatedMember.role,
+      isMe: false,
+    };
+  }
+
+  async removeMember(
+    userId: string,
+    projectId: string,
+    memberId: string,
+  ): Promise<{ message: string }> {
+    // メンバーシップと管理者権限を確認
+    await this.requireAdminMembership(userId, projectId);
+
+    // 対象メンバーを取得
+    const targetMember = await this.prisma.projectMember.findUnique({
+      where: { id: memberId },
+      select: { userId: true, projectId: true, role: true },
+    });
+
+    if (!targetMember || targetMember.projectId !== projectId) {
+      throw new NotFoundException(
+        '指定されたプロジェクトまたはユーザーが見つかりません。',
+      );
+    }
+
+    // 自分自身は削除できない
+    if (targetMember.userId === userId) {
+      throw new BadRequestException(
+        '自分自身を削除することはできません。離脱を利用してください。',
+      );
+    }
+
+    // 削除後に管理者が0人になるかチェック
+    if (targetMember.role === 'admin') {
+      await this.checkCanRemoveAdmin(projectId, targetMember.userId);
+    }
+
+    // メンバーを削除
+    await this.prisma.projectMember.delete({
+      where: { id: memberId },
+    });
+
+    return { message: 'メンバーを削除しました。' };
+  }
+
+  async leave(
+    userId: string,
+    projectId: string,
+  ): Promise<{ message: string }> {
+    // メンバーシップと管理者権限を確認
+    const membership = await this.requireAdminMembership(userId, projectId);
+
+    // 離脱後に管理者が0人になるかチェック
+    if (membership.role === 'admin') {
+      await this.checkCanRemoveAdmin(projectId, userId);
+    }
+
+    // 自分自身を削除
+    await this.prisma.projectMember.delete({
+      where: {
+        userId_projectId: {
+          userId,
+          projectId,
+        },
+      },
+    });
+
+    return { message: 'プロジェクトから離脱しました。' };
+  }
+
   /**
    * メンバーシップを確認し、管理者でなければエラーを投げる
    */
   private async requireAdminMembership(
     userId: string,
     projectId: string,
-  ): Promise<void> {
+  ): Promise<{ role: string }> {
     const membership = await this.prisma.projectMember.findUnique({
       where: {
         userId_projectId: {
@@ -172,6 +290,30 @@ export class MembersService {
 
     if (membership.role !== 'admin') {
       throw new ForbiddenException('この操作を行う権限がありません。');
+    }
+
+    return membership;
+  }
+
+  /**
+   * 指定ユーザーを除外した場合に管理者が0人になるかチェック
+   */
+  private async checkCanRemoveAdmin(
+    projectId: string,
+    excludeUserId: string,
+  ): Promise<void> {
+    const adminCount = await this.prisma.projectMember.count({
+      where: {
+        projectId,
+        role: 'admin',
+        userId: { not: excludeUserId },
+      },
+    });
+
+    if (adminCount === 0) {
+      throw new BadRequestException(
+        'プロジェクトには管理者が1名以上必要です。',
+      );
     }
   }
 }

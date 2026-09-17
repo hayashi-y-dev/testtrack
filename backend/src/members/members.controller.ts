@@ -2,6 +2,8 @@ import {
   Controller,
   Get,
   Post,
+  Patch,
+  Delete,
   Body,
   Param,
   Query,
@@ -13,6 +15,7 @@ import {
 import type { Request } from 'express';
 import { MembersService } from './members.service.js';
 import { AddMemberDto } from './dto/add-member.dto.js';
+import { ChangeRoleDto } from './dto/change-role.dto.js';
 import { AuthGuard } from '../auth/guards/auth.guard.js';
 import type { MemberListItem, SearchResultItem } from './members.types.js';
 
@@ -49,5 +52,35 @@ export class MembersController {
   ): Promise<MemberListItem> {
     const userId = req.session.userId!;
     return this.membersService.addMember(userId, projectId, dto);
+  }
+
+  @Post('leave')
+  async leave(
+    @Param('projectId') projectId: string,
+    @Req() req: Request,
+  ): Promise<{ message: string }> {
+    const userId = req.session.userId!;
+    return this.membersService.leave(userId, projectId);
+  }
+
+  @Patch(':memberId')
+  async changeRole(
+    @Param('projectId') projectId: string,
+    @Param('memberId') memberId: string,
+    @Body() dto: ChangeRoleDto,
+    @Req() req: Request,
+  ): Promise<MemberListItem> {
+    const userId = req.session.userId!;
+    return this.membersService.changeRole(userId, projectId, memberId, dto);
+  }
+
+  @Delete(':memberId')
+  async removeMember(
+    @Param('projectId') projectId: string,
+    @Param('memberId') memberId: string,
+    @Req() req: Request,
+  ): Promise<{ message: string }> {
+    const userId = req.session.userId!;
+    return this.membersService.removeMember(userId, projectId, memberId);
   }
 }
