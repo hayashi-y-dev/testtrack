@@ -159,6 +159,9 @@ export class TestFilesService {
     });
   }
 
+  /**
+   * Excelを解析し、確認画面用の結果（新規／更新／エラー）を返す。DBには保存しない
+   */
   async preview(
     userId: string,
     projectId: string,
@@ -235,6 +238,10 @@ export class TestFilesService {
     };
   }
 
+  /**
+   * 確認済みの解析結果をDBに登録・更新する。更新時は楽観ロックで競合を検出し、
+   * エラーはファイル単位で返す（全件エラーでも400にはしない）
+   */
   async commit(
     userId: string,
     projectId: string,
