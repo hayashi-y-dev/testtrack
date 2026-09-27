@@ -75,6 +75,7 @@ export class ProjectsController {
   }
 
   @Post(':id/archive')
+  @HttpCode(HttpStatus.OK)
   async archive(
     @Param('id') id: string,
     @Req() req: Request,

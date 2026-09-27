@@ -10,6 +10,8 @@ import {
   UseInterceptors,
   UploadedFiles,
   BadRequestException,
+  HttpCode,
+  HttpStatus,
 } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import type { Request } from 'express';
@@ -40,6 +42,7 @@ export class TestFilesController {
   }
 
   @Post('preview')
+  @HttpCode(HttpStatus.OK)
   @UseInterceptors(FilesInterceptor('files', 50))
   async preview(
     @Param('projectId') projectId: string,
@@ -54,6 +57,7 @@ export class TestFilesController {
   }
 
   @Post('commit')
+  @HttpCode(HttpStatus.OK)
   async commit(
     @Param('projectId') projectId: string,
     @Body() dto: CommitFilesDto,

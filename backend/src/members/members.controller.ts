@@ -55,6 +55,7 @@ export class MembersController {
   }
 
   @Post('leave')
+  @HttpCode(HttpStatus.OK)
   async leave(
     @Param('projectId') projectId: string,
     @Req() req: Request,

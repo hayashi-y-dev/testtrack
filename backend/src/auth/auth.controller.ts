@@ -5,6 +5,8 @@ import {
   Req,
   Res,
   UseGuards,
+  HttpCode,
+  HttpStatus,
   InternalServerErrorException,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
@@ -22,6 +24,7 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('login')
+  @HttpCode(HttpStatus.OK)
   async login(
     @Body() dto: LoginDto,
     @Req() req: Request,
@@ -61,6 +64,7 @@ export class AuthController {
   }
 
   @Post('password-reset-request')
+  @HttpCode(HttpStatus.OK)
   async requestPasswordReset(
     @Body() dto: PasswordResetRequestDto,
   ): Promise<{ message: string }> {
@@ -68,11 +72,13 @@ export class AuthController {
   }
 
   @Post('password-reset-token/verify')
+  @HttpCode(HttpStatus.OK)
   async verifyToken(@Body() dto: VerifyTokenDto): Promise<{ valid: boolean }> {
     return this.authService.verifyToken(dto);
   }
 
   @Post('password-reset')
+  @HttpCode(HttpStatus.OK)
   async resetPassword(
     @Body() dto: PasswordResetDto,
   ): Promise<{ message: string }> {
