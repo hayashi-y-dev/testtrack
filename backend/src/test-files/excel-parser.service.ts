@@ -13,8 +13,8 @@ export class ExcelParserService {
   private readonly SUPPORTED_EXTENSIONS = ['.xlsx', '.xls'];
   private readonly UNSUPPORTED_EXT_MESSAGE =
     '対応していないファイル形式です。.xlsxまたは.xls形式のファイルを選択してください。';
-  private readonly NO_COLUMN_NOT_FOUND_MESSAGE =
-    '「No」列が見つかりませんでした。';
+  private readonly NO_TEST_SHEET_MESSAGE =
+    'テストケースシート（「No」列と結果列を持つシート）が見つかりませんでした。';
   private readonly NO_VALID_ROWS_MESSAGE =
     '有効なテストケースが見つかりませんでした。';
   private readonly PARSE_ERROR_MESSAGE =
@@ -52,34 +52,25 @@ export class ExcelParserService {
     try {
       const workbook = XLSX.read(buffer, { type: 'buffer' });
 
-      // 最初のシートを取得
-      const sheetName = workbook.SheetNames[0];
-      if (!sheetName) {
+      // 更新履歴シート等を誤って集計しないよう、「No」列と結果列の両方を持つ
+      // シートのみを対象とし、それ以外のシートはエラーにせず無視する（仕様書6-1章）
+      const sheetResults: ParsedData[] = [];
+      for (const sheetName of workbook.SheetNames) {
+        const sheetData = this.parseSheet(workbook.Sheets[sheetName]);
+        if (sheetData) {
+          sheetResults.push(sheetData);
+        }
+      }
+
+      if (sheetResults.length === 0) {
         return {
           success: false,
-          errorMessage: this.PARSE_ERROR_MESSAGE,
+          errorMessage: this.NO_TEST_SHEET_MESSAGE,
         };
       }
 
-      const sheet = workbook.Sheets[sheetName];
-      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
-        defval: '',
-      });
-
-      // No列を探す
-      const noColumnName = this.findNoColumn(rows);
-      if (!noColumnName) {
-        return {
-          success: false,
-          errorMessage: this.NO_COLUMN_NOT_FOUND_MESSAGE,
-        };
-      }
-
-      // 実施状態列を探す
-      const statusColumnName = this.findStatusColumn(rows);
-
-      // テストケース行を抽出して集計
-      const data = this.aggregateTestCases(rows, noColumnName, statusColumnName);
+      // 対象シートが複数ある場合は全シート合算とする（MVP範囲、仕様書6-1章）
+      const data = this.sumParsedData(sheetResults);
 
       if (data.targetCount === 0 && data.excludedCount === 0) {
         return {
@@ -98,19 +89,39 @@ export class ExcelParserService {
   }
 
   /**
+   * 1シートを解析する。テストケースシートでなければnullを返す
+   */
+  private parseSheet(sheet: XLSX.WorkSheet): ParsedData | null {
+    // データ行のキーではなくヘッダー行から列を判定する。データ行が0件の
+    // テストケースシートを「列なし」と誤判定して対象外にしないため
+    const [headerRow] = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
+      header: 1,
+    });
+    const headers = Array.from(headerRow ?? [], (cell) =>
+      cell === null || cell === undefined ? '' : String(cell),
+    );
+
+    const noColumnName = this.findNoColumn(headers);
+    const statusColumnName = this.findStatusColumn(headers);
+    if (!noColumnName || !statusColumnName) {
+      return null;
+    }
+
+    const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
+      defval: '',
+    });
+    return this.aggregateTestCases(rows, noColumnName, statusColumnName);
+  }
+
+  /**
    * No列を探す
    */
-  private findNoColumn(rows: Record<string, unknown>[]): string | null {
-    if (rows.length === 0) return null;
-
-    const firstRow = rows[0];
-    const keys = Object.keys(firstRow);
-
+  private findNoColumn(headers: string[]): string | null {
     // "No"または"no"という名前の列を探す
-    for (const key of keys) {
-      const normalizedKey = key.toLowerCase().trim();
-      if (normalizedKey === 'no') {
-        return key;
+    for (const header of headers) {
+      const normalizedHeader = header.toLowerCase().trim();
+      if (normalizedHeader === 'no') {
+        return header;
       }
     }
 
@@ -118,21 +129,24 @@ export class ExcelParserService {
   }
 
   /**
-   * 実施状態列を探す
+   * 実施状況を示す列（結果列）を探す
    */
-  private findStatusColumn(rows: Record<string, unknown>[]): string | null {
-    if (rows.length === 0) return null;
-
-    const firstRow = rows[0];
-    const keys = Object.keys(firstRow);
-
-    // 「実施状態」「ステータス」「状態」「結果」などを探す
-    const statusKeywords = ['実施状態', 'ステータス', '状態', '結果', 'status', 'result'];
-    for (const key of keys) {
-      const normalizedKey = key.toLowerCase().trim();
+  private findStatusColumn(headers: string[]): string | null {
+    // 「実施状況」「実施状態」「ステータス」「状態」「結果」などを探す
+    const statusKeywords = [
+      '実施状況',
+      '実施状態',
+      'ステータス',
+      '状態',
+      '結果',
+      'status',
+      'result',
+    ];
+    for (const header of headers) {
+      const normalizedHeader = header.toLowerCase().trim();
       for (const keyword of statusKeywords) {
-        if (normalizedKey.includes(keyword.toLowerCase())) {
-          return key;
+        if (normalizedHeader.includes(keyword.toLowerCase())) {
+          return header;
         }
       }
     }
@@ -141,12 +155,34 @@ export class ExcelParserService {
   }
 
   /**
+   * 複数シートの集計値を合算
+   */
+  private sumParsedData(dataList: ParsedData[]): ParsedData {
+    return dataList.reduce(
+      (sum, data) => ({
+        targetCount: sum.targetCount + data.targetCount,
+        okCount: sum.okCount + data.okCount,
+        ngCount: sum.ngCount + data.ngCount,
+        notRunCount: sum.notRunCount + data.notRunCount,
+        excludedCount: sum.excludedCount + data.excludedCount,
+      }),
+      {
+        targetCount: 0,
+        okCount: 0,
+        ngCount: 0,
+        notRunCount: 0,
+        excludedCount: 0,
+      },
+    );
+  }
+
+  /**
    * テストケースを集計
    */
   private aggregateTestCases(
     rows: Record<string, unknown>[],
     noColumnName: string,
-    statusColumnName: string | null,
+    statusColumnName: string,
   ): ParsedData {
     let okCount = 0;
     let ngCount = 0;
@@ -162,8 +198,7 @@ export class ExcelParserService {
       }
 
       // 実施状態を取得
-      const statusValue = statusColumnName ? row[statusColumnName] : '';
-      const status = this.normalizeStatus(statusValue);
+      const status = this.normalizeStatus(row[statusColumnName]);
 
       switch (status) {
         case 'ok':
