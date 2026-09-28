@@ -8,9 +8,17 @@ export interface ParseResult {
   errorMessage?: string;
 }
 
+interface HeaderRow {
+  rowIndex: number;
+  noColumnName: string;
+  statusColumnName: string;
+}
+
 @Injectable()
 export class ExcelParserService {
   private readonly SUPPORTED_EXTENSIONS = ['.xlsx', '.xls'];
+  // 誤検出防止のため、ヘッダー行はシート先頭から30行以内に限定する（仕様書6-1章）
+  private readonly HEADER_SCAN_MAX_ROWS = 30;
   private readonly UNSUPPORTED_EXT_MESSAGE =
     '対応していないファイル形式です。.xlsxまたは.xls形式のファイルを選択してください。';
   private readonly NO_TEST_SHEET_MESSAGE =
@@ -92,25 +100,56 @@ export class ExcelParserService {
    * 1シートを解析する。テストケースシートでなければnullを返す
    */
   private parseSheet(sheet: XLSX.WorkSheet): ParsedData | null {
-    // データ行のキーではなくヘッダー行から列を判定する。データ行が0件の
-    // テストケースシートを「列なし」と誤判定して対象外にしないため
-    const [headerRow] = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
-      header: 1,
-    });
-    const headers = Array.from(headerRow ?? [], (cell) =>
-      cell === null || cell === undefined ? '' : String(cell),
-    );
-
-    const noColumnName = this.findNoColumn(headers);
-    const statusColumnName = this.findStatusColumn(headers);
-    if (!noColumnName || !statusColumnName) {
+    const headerRow = this.findHeaderRow(sheet);
+    if (!headerRow) {
       return null;
     }
 
+    // ヘッダー行を起点に読み込み、その上にあるタイトル・作成日等のメタ情報を集計から外す
     const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
+      range: headerRow.rowIndex,
       defval: '',
     });
-    return this.aggregateTestCases(rows, noColumnName, statusColumnName);
+    return this.aggregateTestCases(
+      rows,
+      headerRow.noColumnName,
+      headerRow.statusColumnName,
+    );
+  }
+
+  /**
+   * シート先頭から最大30行を走査し、「No」列と結果列の両方を持つ最初の行を探す
+   */
+  private findHeaderRow(sheet: XLSX.WorkSheet): HeaderRow | null {
+    const ref = sheet['!ref'];
+    if (!ref) {
+      return null;
+    }
+
+    // sheet_to_jsonの配列は使用範囲の開始行から始まるため、物理行番号へ換算して
+    // 「先頭から30行」を判定する（冒頭の空行も行数に含める）
+    const startRow = XLSX.utils.decode_range(ref).s.r;
+    const lines = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
+      header: 1,
+      blankrows: true,
+    });
+
+    for (
+      let i = 0;
+      i < lines.length && startRow + i < this.HEADER_SCAN_MAX_ROWS;
+      i++
+    ) {
+      const headers = Array.from(lines[i] ?? [], (cell) =>
+        cell === null || cell === undefined ? '' : String(cell),
+      );
+      const noColumnName = this.findNoColumn(headers);
+      const statusColumnName = this.findStatusColumn(headers);
+      if (noColumnName && statusColumnName) {
+        return { rowIndex: startRow + i, noColumnName, statusColumnName };
+      }
+    }
+
+    return null;
   }
 
   /**
