@@ -171,7 +171,7 @@ export class ExcelParserService {
    * 実施状況を示す列（結果列）を探す
    */
   private findStatusColumn(headers: string[]): string | null {
-    // 「実施状況」「実施状態」「ステータス」「状態」「結果」などを探す
+    // 部分一致だと「期待結果」等を結果列と誤判定するため、No列と同じく完全一致で探す（仕様書6-1章）
     const statusKeywords = [
       '実施状況',
       '実施状態',
@@ -183,10 +183,8 @@ export class ExcelParserService {
     ];
     for (const header of headers) {
       const normalizedHeader = header.toLowerCase().trim();
-      for (const keyword of statusKeywords) {
-        if (normalizedHeader.includes(keyword.toLowerCase())) {
-          return header;
-        }
+      if (statusKeywords.includes(normalizedHeader)) {
+        return header;
       }
     }
 
