@@ -1,5 +1,6 @@
 import {
   IsArray,
+  IsDefined,
   ValidateNested,
   IsString,
   IsIn,
@@ -50,6 +51,8 @@ class CommitFileDto {
   @Min(1)
   baseVersion?: number;
 
+  // @ValidateNestedは値がundefined/nullだと検証をスキップするため、必須チェックを別途付ける
+  @IsDefined()
   @ValidateNested()
   @Type(() => ParsedDataDto)
   parsedData: ParsedDataDto;
