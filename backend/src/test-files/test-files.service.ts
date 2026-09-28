@@ -5,6 +5,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import 'multer';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ExcelParserService } from './excel-parser.service.js';
 import { TestFilesQueryDto } from './dto/test-files-query.dto.js';
@@ -12,11 +13,19 @@ import { CommitFilesDto } from './dto/commit-files.dto.js';
 import type {
   TestFileListItem,
   TestFileStatus,
+  ParsedData,
   PreviewFileResult,
   PreviewResponse,
   CommitFileResult,
   CommitResponse,
 } from './test-files.types.js';
+
+type CommitFileInput = CommitFilesDto['files'][number];
+
+const CONFLICT_MESSAGE =
+  'このファイルは確認後に別ユーザーによって更新されました。最新状態を確認して再度実行してください。';
+const FILE_NOT_FOUND_MESSAGE = '指定されたファイルが見つかりません。';
+const COMMIT_FAILED_MESSAGE = 'ファイルの処理中にエラーが発生しました。';
 
 @Injectable()
 export class TestFilesService {
@@ -253,109 +262,7 @@ export class TestFilesService {
     const results: CommitFileResult[] = [];
 
     for (const file of dto.files) {
-      try {
-        if (file.operation === 'create') {
-          const newFile = await this.prisma.testFile.create({
-            data: {
-              projectId,
-              name: file.fileName,
-              targetCount: file.parsedData.targetCount,
-              okCount: file.parsedData.okCount,
-              ngCount: file.parsedData.ngCount,
-              notRunCount: file.parsedData.notRunCount,
-              excludedCount: file.parsedData.excludedCount,
-              lastUpdatedBy: userId,
-            },
-          });
-
-          // 初回登録時もProgressSnapshotを作成
-          await this.prisma.progressSnapshot.create({
-            data: {
-              testFileId: newFile.id,
-              targetCount: file.parsedData.targetCount,
-              okCount: file.parsedData.okCount,
-              ngCount: file.parsedData.ngCount,
-              notRunCount: file.parsedData.notRunCount,
-              excludedCount: file.parsedData.excludedCount,
-              updatedBy: userId,
-            },
-          });
-
-          results.push({
-            fileName: file.fileName,
-            result: 'success',
-            operation: 'create',
-            fileId: newFile.id,
-          });
-        } else {
-          // update
-          const existingFile = await this.prisma.testFile.findUnique({
-            where: { id: file.existingFileId },
-            select: { version: true, projectId: true },
-          });
-
-          // ファイルが存在しない、または別プロジェクトの場合
-          if (!existingFile || existingFile.projectId !== projectId) {
-            results.push({
-              fileName: file.fileName,
-              result: 'error',
-              errorMessage: '指定されたファイルが見つかりません。',
-            });
-            continue;
-          }
-
-          // 楽観ロックチェック
-          if (existingFile.version !== file.baseVersion) {
-            results.push({
-              fileName: file.fileName,
-              result: 'error',
-              errorMessage:
-                'このファイルは確認後に別ユーザーによって更新されました。最新状態を確認して再度実行してください。',
-            });
-            continue;
-          }
-
-          // 更新
-          const updatedFile = await this.prisma.testFile.update({
-            where: { id: file.existingFileId },
-            data: {
-              targetCount: file.parsedData.targetCount,
-              okCount: file.parsedData.okCount,
-              ngCount: file.parsedData.ngCount,
-              notRunCount: file.parsedData.notRunCount,
-              excludedCount: file.parsedData.excludedCount,
-              lastUpdatedBy: userId,
-              version: { increment: 1 },
-            },
-          });
-
-          // ProgressSnapshotを作成
-          await this.prisma.progressSnapshot.create({
-            data: {
-              testFileId: updatedFile.id,
-              targetCount: file.parsedData.targetCount,
-              okCount: file.parsedData.okCount,
-              ngCount: file.parsedData.ngCount,
-              notRunCount: file.parsedData.notRunCount,
-              excludedCount: file.parsedData.excludedCount,
-              updatedBy: userId,
-            },
-          });
-
-          results.push({
-            fileName: file.fileName,
-            result: 'success',
-            operation: 'update',
-            fileId: updatedFile.id,
-          });
-        }
-      } catch {
-        results.push({
-          fileName: file.fileName,
-          result: 'error',
-          errorMessage: 'ファイルの処理中にエラーが発生しました。',
-        });
-      }
+      results.push(await this.commitFile(userId, projectId, file));
     }
 
     const successCount = results.filter((r) => r.result === 'success').length;
@@ -369,6 +276,144 @@ export class TestFilesService {
         errorCount,
       },
     };
+  }
+
+  /**
+   * 1ファイル分の登録・更新を1トランザクションで行い、失敗はファイル単位のエラーとして返す
+   */
+  private async commitFile(
+    userId: string,
+    projectId: string,
+    file: CommitFileInput,
+  ): Promise<CommitFileResult> {
+    try {
+      return await this.prisma.$transaction((tx) =>
+        file.operation === 'create'
+          ? this.createTestFile(tx, userId, projectId, file)
+          : this.updateTestFile(tx, userId, projectId, file),
+      );
+    } catch (error) {
+      // 確認画面の表示後に別ユーザーが同名ファイルを登録していた場合（ユニーク制約違反）は、
+      // 更新の競合と同じ「エラー」として扱う（仕様6-8章・8-1章）
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        return this.commitErrorResult(file.fileName, CONFLICT_MESSAGE);
+      }
+      return this.commitErrorResult(file.fileName, COMMIT_FAILED_MESSAGE);
+    }
+  }
+
+  /**
+   * TestFileを新規登録し、初回登録の履歴を作成する
+   */
+  private async createTestFile(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    projectId: string,
+    file: CommitFileInput,
+  ): Promise<CommitFileResult> {
+    const newFile = await tx.testFile.create({
+      data: {
+        projectId,
+        name: file.fileName,
+        ...this.toCountData(file.parsedData),
+        lastUpdatedBy: userId,
+      },
+    });
+    await this.createSnapshot(tx, newFile.id, userId, file.parsedData);
+
+    return {
+      fileName: file.fileName,
+      result: 'success',
+      operation: 'create',
+      fileId: newFile.id,
+    };
+  }
+
+  /**
+   * 楽観ロックでTestFileを更新し、更新履歴を作成する
+   */
+  private async updateTestFile(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    projectId: string,
+    file: CommitFileInput,
+  ): Promise<CommitFileResult> {
+    const fileId = file.existingFileId!;
+
+    // versionの一致を更新条件に含め、確認と更新を1つのUPDATE文で行う。
+    // 確認と更新を別クエリにすると、同時実行された2リクエストが両方とも成功しうるため
+    const { count } = await tx.testFile.updateMany({
+      where: { id: fileId, projectId, version: file.baseVersion },
+      data: {
+        ...this.toCountData(file.parsedData),
+        lastUpdatedBy: userId,
+        version: { increment: 1 },
+      },
+    });
+
+    if (count === 0) {
+      const exists = await tx.testFile.findFirst({
+        where: { id: fileId, projectId },
+        select: { id: true },
+      });
+      return this.commitErrorResult(
+        file.fileName,
+        exists ? CONFLICT_MESSAGE : FILE_NOT_FOUND_MESSAGE,
+      );
+    }
+
+    await this.createSnapshot(tx, fileId, userId, file.parsedData);
+
+    return {
+      fileName: file.fileName,
+      result: 'success',
+      operation: 'update',
+      fileId,
+    };
+  }
+
+  /**
+   * 進捗履歴（ProgressSnapshot）を作成
+   */
+  private async createSnapshot(
+    tx: Prisma.TransactionClient,
+    testFileId: string,
+    userId: string,
+    parsedData: ParsedData,
+  ): Promise<void> {
+    await tx.progressSnapshot.create({
+      data: {
+        testFileId,
+        ...this.toCountData(parsedData),
+        updatedBy: userId,
+      },
+    });
+  }
+
+  /**
+   * 解析結果から集計値のカラムだけを取り出す
+   */
+  private toCountData(parsedData: ParsedData): ParsedData {
+    return {
+      targetCount: parsedData.targetCount,
+      okCount: parsedData.okCount,
+      ngCount: parsedData.ngCount,
+      notRunCount: parsedData.notRunCount,
+      excludedCount: parsedData.excludedCount,
+    };
+  }
+
+  /**
+   * コミット結果のエラー行を作成
+   */
+  private commitErrorResult(
+    fileName: string,
+    errorMessage: string,
+  ): CommitFileResult {
+    return { fileName, result: 'error', errorMessage };
   }
 
   /**
