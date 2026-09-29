@@ -26,8 +26,6 @@ const CONFLICT_MESSAGE =
   'このファイルは確認後に別ユーザーによって更新されました。最新状態を確認して再度実行してください。';
 const FILE_NOT_FOUND_MESSAGE = '指定されたファイルが見つかりません。';
 const COMMIT_FAILED_MESSAGE = 'ファイルの処理中にエラーが発生しました。';
-// ファイルが存在しない場合も、api-design.md 4-4の定義どおり2-3と同じ404として扱う
-const PROJECT_NOT_FOUND_MESSAGE = '指定されたプロジェクトが見つかりません。';
 const HAS_UPDATE_HISTORY_MESSAGE =
   'このファイルには更新履歴が存在するため、登録を取り消せません。';
 
@@ -428,14 +426,12 @@ export class TestFilesService {
     projectId: string,
     fileId: string,
   ): Promise<{ message: string }> {
-    // 権限チェック（テスター・管理者のみ、仕様書5-4章）
+    // 権限チェック（テスター・管理者のみ）
     await this.requireTesterOrAdmin(userId, projectId);
 
-    // 取消可否（初回登録後に更新されていないこと）を削除条件に含め、判定と削除を1つの
-    // DELETE文で行う。判定→削除を別クエリにすると、その間に届いた更新（4-3）を取りこぼし、
-    // 更新済みのファイルを消してしまうため。versionは更新のたびに履歴の作成と同じ
-    // トランザクションで加算されるので、version=1は「初回登録の履歴しかない」ことと同じ。
-    // 初回登録の履歴は外部キーのCascadeで同じ削除文の中で消える（仕様書8-2章）
+    // 判定→削除を別クエリにすると、その間に届いた更新を取りこぼして更新済みのファイルを消すため、
+    // 取消可否を削除条件に含めて1文で行う。versionは更新のたびに履歴作成と同じトランザクションで
+    // 加算されるので、version=1は「初回登録の履歴しかない」ことを意味する
     const { count } = await this.prisma.testFile.deleteMany({
       where: { id: fileId, projectId, version: 1 },
     });
@@ -446,7 +442,7 @@ export class TestFilesService {
         select: { id: true },
       });
       if (!exists) {
-        throw new NotFoundException(PROJECT_NOT_FOUND_MESSAGE);
+        throw new NotFoundException(FILE_NOT_FOUND_MESSAGE);
       }
       throw new BadRequestException(HAS_UPDATE_HISTORY_MESSAGE);
     }

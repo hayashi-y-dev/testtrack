@@ -15,7 +15,7 @@ const NO_TEST_SHEET_MESSAGE =
   'テストケースシート（「No」列と結果列を持つシート）が見つかりませんでした。';
 const HAS_UPDATE_HISTORY_MESSAGE =
   'このファイルには更新履歴が存在するため、登録を取り消せません。';
-const PROJECT_NOT_FOUND_MESSAGE = '指定されたプロジェクトが見つかりません。';
+const FILE_NOT_FOUND_MESSAGE = '指定されたファイルが見つかりません。';
 
 const PARSED_DATA = {
   targetCount: 4,
@@ -352,7 +352,7 @@ describe('テストファイルAPI (e2e)', () => {
         .delete(deleteUrl('aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'))
         .expect(404);
 
-      expect(res.body.message).toBe(PROJECT_NOT_FOUND_MESSAGE);
+      expect(res.body.message).toBe(FILE_NOT_FOUND_MESSAGE);
     });
 
     it('別プロジェクトのファイルIDを指定すると404になり、そのファイルは削除されない', async () => {
