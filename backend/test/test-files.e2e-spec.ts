@@ -13,6 +13,9 @@ const CONFLICT_MESSAGE =
   'このファイルは確認後に別ユーザーによって更新されました。最新状態を確認して再度実行してください。';
 const NO_TEST_SHEET_MESSAGE =
   'テストケースシート（「No」列と結果列を持つシート）が見つかりませんでした。';
+const HAS_UPDATE_HISTORY_MESSAGE =
+  'このファイルには更新履歴が存在するため、登録を取り消せません。';
+const PROJECT_NOT_FOUND_MESSAGE = '指定されたプロジェクトが見つかりません。';
 
 const PARSED_DATA = {
   targetCount: 4,
@@ -297,5 +300,173 @@ describe('テストファイルAPI (e2e)', () => {
         errorMessage: NO_TEST_SHEET_MESSAGE,
       });
     });
+  });
+
+  describe('DELETE /projects/:id/test-files/:fileId - 登録取消', () => {
+    const deleteUrl = (fileId: string): string =>
+      `/projects/${fixture.projectId}/test-files/${fileId}`;
+
+    const updateBody = (name: string, fileId: string): object => ({
+      files: [
+        {
+          fileName: name,
+          operation: 'update',
+          existingFileId: fileId,
+          baseVersion: 1,
+          parsedData: UPDATED_PARSED_DATA,
+        },
+      ],
+    });
+
+    const countSnapshots = (fileId: string): Promise<number> =>
+      prisma.progressSnapshot.count({ where: { testFileId: fileId } });
+
+    it('初回登録のみのファイルは取り消され、TestFileと初回登録の履歴が削除される', async () => {
+      const fileId = await createFileViaApi(uniqueFileName());
+      expect(await countSnapshots(fileId)).toBe(1);
+
+      const res = await agent.delete(deleteUrl(fileId)).expect(200);
+
+      expect(res.body).toEqual({ message: '登録を取り消しました。' });
+      expect(await prisma.testFile.count({ where: { id: fileId } })).toBe(0);
+      expect(await countSnapshots(fileId)).toBe(0);
+    });
+
+    it('更新履歴があるファイルは400になり、削除されない', async () => {
+      const name = uniqueFileName();
+      const fileId = await createFileViaApi(name);
+      await agent.post(commitUrl()).send(updateBody(name, fileId)).expect(200);
+
+      const res = await agent.delete(deleteUrl(fileId)).expect(400);
+
+      expect(res.body.message).toBe(HAS_UPDATE_HISTORY_MESSAGE);
+      const file = await prisma.testFile.findUniqueOrThrow({
+        where: { id: fileId },
+      });
+      expect(file.version).toBe(2);
+      expect(await countSnapshots(fileId)).toBe(2);
+    });
+
+    it('存在しないファイルIDは404になる', async () => {
+      const res = await agent
+        .delete(deleteUrl('aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'))
+        .expect(404);
+
+      expect(res.body.message).toBe(PROJECT_NOT_FOUND_MESSAGE);
+    });
+
+    it('別プロジェクトのファイルIDを指定すると404になり、そのファイルは削除されない', async () => {
+      // ログイン中ユーザーが参加していないプロジェクトのファイル
+      const otherProject = await prisma.project.create({
+        data: { name: `E2Eテスト 別プロジェクト ${fileNameSeq}` },
+      });
+      try {
+        const otherFile = await prisma.testFile.create({
+          data: {
+            projectId: otherProject.id,
+            name: uniqueFileName(),
+            ...PARSED_DATA,
+            lastUpdatedBy: fixture.userId,
+          },
+        });
+
+        await agent.delete(deleteUrl(otherFile.id)).expect(404);
+
+        expect(await prisma.testFile.count({ where: { id: otherFile.id } })).toBe(
+          1,
+        );
+      } finally {
+        await prisma.project.delete({ where: { id: otherProject.id } });
+      }
+    });
+
+    it('閲覧者は403になり、削除されない', async () => {
+      const fileId = await createFileViaApi(uniqueFileName());
+      const viewerAgent = request.agent(app.getHttpServer());
+      await viewerAgent
+        .post('/auth/login')
+        .send({ email: fixture.viewer.email, password: fixture.viewer.password })
+        .expect(200);
+
+      const res = await viewerAgent.delete(deleteUrl(fileId)).expect(403);
+
+      expect(res.body.message).toBe('この操作を行う権限がありません。');
+      expect(await prisma.testFile.count({ where: { id: fileId } })).toBe(1);
+    });
+
+    it('未ログインの場合は401になり、削除されない', async () => {
+      const fileId = await createFileViaApi(uniqueFileName());
+
+      await request(app.getHttpServer()).delete(deleteUrl(fileId)).expect(401);
+
+      expect(await prisma.testFile.count({ where: { id: fileId } })).toBe(1);
+    });
+
+    it(
+      '取消と更新が同時に届いても両方が成功することはなく、DBに不整合が残らない',
+      async () => {
+        for (let round = 1; round <= RACE_ROUNDS; round++) {
+          const name = uniqueFileName();
+          const fileId = await createFileViaApi(name);
+
+          const [deleteRes, ...updateResponses] = await Promise.all([
+            agent.delete(deleteUrl(fileId)),
+            ...Array.from({ length: PARALLEL_REQUESTS }, () =>
+              agent.post(commitUrl()).send(updateBody(name, fileId)),
+            ),
+          ]);
+
+          const updateSucceeded = updateResponses.some(
+            (res) =>
+              (res.body as { files: CommitFileResult[] }).files[0].result ===
+              'success',
+          );
+          const deleteSucceeded = deleteRes.status === 200;
+
+          // 取消が成功した後に更新が成功する（または逆）と、更新したはずのファイルが
+          // 消える／消したはずのファイルが残るため、どちらか一方だけが成功する
+          expect(
+            [deleteSucceeded, updateSucceeded].filter(Boolean),
+            `ラウンド${round}: 取消=${deleteRes.status}, 更新成功=${updateSucceeded}`,
+          ).toHaveLength(1);
+
+          if (deleteSucceeded) {
+            expect(await prisma.testFile.count({ where: { id: fileId } })).toBe(
+              0,
+            );
+            expect(await countSnapshots(fileId)).toBe(0);
+          } else {
+            expect(deleteRes.status).toBe(400);
+            const file = await prisma.testFile.findUniqueOrThrow({
+              where: { id: fileId },
+            });
+            expect(file.version).toBe(2);
+            expect(await countSnapshots(fileId)).toBe(2);
+          }
+        }
+      },
+      30_000,
+    );
+
+    it(
+      '同じファイルへの取消が同時に届いても、成功は1件だけで残りは404になる',
+      async () => {
+        const fileId = await createFileViaApi(uniqueFileName());
+
+        const responses = await Promise.all(
+          Array.from({ length: PARALLEL_REQUESTS }, () =>
+            agent.delete(deleteUrl(fileId)),
+          ),
+        );
+
+        const statuses = responses.map((res) => res.status);
+        expect(statuses.filter((s) => s === 200)).toHaveLength(1);
+        expect(statuses.filter((s) => s === 404)).toHaveLength(
+          PARALLEL_REQUESTS - 1,
+        );
+        expect(await prisma.testFile.count({ where: { id: fileId } })).toBe(0);
+      },
+      20_000,
+    );
   });
 });

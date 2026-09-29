@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Delete,
   Param,
   Query,
   Body,
@@ -65,5 +66,15 @@ export class TestFilesController {
   ): Promise<CommitResponse> {
     const userId = req.session.userId!;
     return this.testFilesService.commit(userId, projectId, dto);
+  }
+
+  @Delete(':fileId')
+  async remove(
+    @Param('projectId') projectId: string,
+    @Param('fileId') fileId: string,
+    @Req() req: Request,
+  ): Promise<{ message: string }> {
+    const userId = req.session.userId!;
+    return this.testFilesService.remove(userId, projectId, fileId);
   }
 }
