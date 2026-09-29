@@ -26,6 +26,8 @@ const CONFLICT_MESSAGE =
   'このファイルは確認後に別ユーザーによって更新されました。最新状態を確認して再度実行してください。';
 const FILE_NOT_FOUND_MESSAGE = '指定されたファイルが見つかりません。';
 const COMMIT_FAILED_MESSAGE = 'ファイルの処理中にエラーが発生しました。';
+const ARCHIVED_PROJECT_MESSAGE =
+  '終了済みのプロジェクトのため、この操作を行うことができません。';
 const HAS_UPDATE_HISTORY_MESSAGE =
   'このファイルには更新履歴が存在するため、登録を取り消せません。';
 
@@ -260,6 +262,7 @@ export class TestFilesService {
   ): Promise<CommitResponse> {
     // 権限チェック（テスター・管理者のみ）
     await this.requireTesterOrAdmin(userId, projectId);
+    await this.requireProjectActive(projectId);
 
     const results: CommitFileResult[] = [];
 
@@ -428,6 +431,7 @@ export class TestFilesService {
   ): Promise<{ message: string }> {
     // 権限チェック（テスター・管理者のみ）
     await this.requireTesterOrAdmin(userId, projectId);
+    await this.requireProjectActive(projectId);
 
     // 判定→削除を別クエリにすると、その間に届いた更新を取りこぼして更新済みのファイルを消すため、
     // 取消可否を削除条件に含めて1文で行う。versionは更新のたびに履歴作成と同じトランザクションで
@@ -494,6 +498,20 @@ export class TestFilesService {
 
     if (membership.role === 'viewer') {
       throw new ForbiddenException('この操作を行う権限がありません。');
+    }
+  }
+
+  /**
+   * 終了済みプロジェクトなら403を投げる（書き込み系メソッドでのみ呼ぶ）
+   */
+  private async requireProjectActive(projectId: string): Promise<void> {
+    // 参加確認（404）より後に呼ぶ。先に判定すると、未参加者にも終了済みかどうかが伝わってしまうため
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      select: { status: true },
+    });
+    if (project?.status === 'archived') {
+      throw new ForbiddenException(ARCHIVED_PROJECT_MESSAGE);
     }
   }
 }

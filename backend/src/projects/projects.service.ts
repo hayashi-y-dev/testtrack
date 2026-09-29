@@ -152,6 +152,7 @@ export class ProjectsService {
     // メンバーシップと管理者権限を確認
     const membership = await this.getMembershipOrThrow(userId, projectId);
     this.requireAdmin(membership.role);
+    this.requireProjectActive(membership.project.status);
 
     // プロジェクト名を更新
     const updatedProject = await this.prisma.project.update({
@@ -275,6 +276,18 @@ export class ProjectsService {
   private requireAdmin(role: string): void {
     if (role !== 'admin') {
       throw new ForbiddenException('この操作を行う権限がありません。');
+    }
+  }
+
+  /**
+   * 終了済みプロジェクトなら403を投げる（書き込み系メソッドでのみ呼ぶ）
+   */
+  private requireProjectActive(status: string): void {
+    // getMembershipOrThrowで取得済みのstatusを使い、追加のクエリを発行しない
+    if (status === 'archived') {
+      throw new ForbiddenException(
+        '終了済みのプロジェクトのため、この操作を行うことができません。',
+      );
     }
   }
 }

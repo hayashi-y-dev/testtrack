@@ -103,6 +103,7 @@ export class MembersService {
   ): Promise<MemberListItem> {
     // メンバーシップと管理者権限を確認
     await this.requireAdminMembership(userId, projectId);
+    await this.requireProjectActive(projectId);
 
     // 追加対象のユーザーが存在するか確認
     const targetUser = await this.prisma.user.findUnique({
@@ -159,6 +160,7 @@ export class MembersService {
   ): Promise<MemberListItem> {
     // メンバーシップと管理者権限を確認
     await this.requireAdminMembership(userId, projectId);
+    await this.requireProjectActive(projectId);
 
     // 対象メンバーを取得
     const targetMember = await this.prisma.projectMember.findUnique({
@@ -209,6 +211,7 @@ export class MembersService {
   ): Promise<{ message: string }> {
     // メンバーシップと管理者権限を確認
     await this.requireAdminMembership(userId, projectId);
+    await this.requireProjectActive(projectId);
 
     // 対象メンバーを取得
     const targetMember = await this.prisma.projectMember.findUnique({
@@ -248,6 +251,7 @@ export class MembersService {
   ): Promise<{ message: string }> {
     // メンバーシップと管理者権限を確認
     const membership = await this.requireAdminMembership(userId, projectId);
+    await this.requireProjectActive(projectId);
 
     // 離脱後に管理者が0人になるかチェック
     if (membership.role === 'admin') {
@@ -313,6 +317,22 @@ export class MembersService {
     if (adminCount === 0) {
       throw new BadRequestException(
         'プロジェクトには管理者が1名以上必要です。',
+      );
+    }
+  }
+
+  /**
+   * 終了済みプロジェクトなら403を投げる（書き込み系メソッドでのみ呼ぶ）
+   */
+  private async requireProjectActive(projectId: string): Promise<void> {
+    // 参加確認（404）より後に呼ぶ。先に判定すると、未参加者にも終了済みかどうかが伝わってしまうため
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      select: { status: true },
+    });
+    if (project?.status === 'archived') {
+      throw new ForbiddenException(
+        '終了済みのプロジェクトのため、この操作を行うことができません。',
       );
     }
   }

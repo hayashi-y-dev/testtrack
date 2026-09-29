@@ -37,7 +37,7 @@ export async function createTestApp(): Promise<INestApplication> {
 /**
  * テスト専用のユーザーを作成する
  */
-async function createTestUser(
+export async function createTestUser(
   prisma: PrismaService,
   label: string,
 ): Promise<TestUser> {
@@ -85,11 +85,19 @@ export async function cleanupTestFixture(
   prisma: PrismaService,
   fixture: TestFixture,
 ): Promise<void> {
-  const userIds = [fixture.userId, fixture.viewer.userId];
-
   // プロジェクトを消すとメンバー・テストファイル・進捗履歴もCascadeで削除される。
   // ユーザーはそれらからRestrictで参照されているため、プロジェクトより後に消す
   await prisma.project.delete({ where: { id: fixture.projectId } });
+  await deleteTestUsers(prisma, [fixture.userId, fixture.viewer.userId]);
+}
+
+/**
+ * テスト用ユーザーとそのセッションを削除する（参照しているプロジェクトは先に削除しておくこと）
+ */
+export async function deleteTestUsers(
+  prisma: PrismaService,
+  userIds: string[],
+): Promise<void> {
   for (const userId of userIds) {
     await prisma.session.deleteMany({
       where: { sess: { path: ['userId'], equals: userId } },
