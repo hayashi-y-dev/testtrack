@@ -27,6 +27,8 @@ export interface PreviewFileResult {
   baseVersion?: number;
   currentProgressRate?: number | null;
   newProgressRate?: number | null;
+  updatedAt?: Date;
+  lastUpdatedBy?: string;
   parsedData?: ParsedData;
   errorMessage?: string;
 }

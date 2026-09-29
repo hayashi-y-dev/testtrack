@@ -433,6 +433,62 @@ describe('テストファイルAPI (e2e)', () => {
     });
   });
 
+  describe('POST /projects/:id/test-files/preview - 更新対象の最終更新情報', () => {
+    const simpleSheet = (): Buffer =>
+      toXlsxBuffer([
+        ['No', '結果'],
+        [1, 'OK'],
+      ]);
+
+    it('updateの場合は、現在の最終更新日時・最終更新者を4-1の一覧と同じ形式で返す', async () => {
+      const name = uniqueFileName();
+      await createFileViaApi(name);
+
+      const res = await agent
+        .post(previewUrl())
+        .attach('files', simpleSheet(), name)
+        .expect(200);
+
+      const listRes = await agent
+        .get(`/projects/${fixture.projectId}/test-files`)
+        .query({ q: name, limit: 'all' })
+        .expect(200);
+      const listed = (
+        listRes.body as {
+          files: { fileName: string; updatedAt: string; lastUpdatedBy: string }[];
+        }
+      ).files.find((f) => f.fileName === name)!;
+      const saved = await prisma.testFile.findFirstOrThrow({
+        where: { projectId: fixture.projectId, name },
+        include: { updatedBy: { select: { displayName: true } } },
+      });
+
+      expect(res.body.files[0]).toMatchObject({
+        operation: 'update',
+        updatedAt: saved.updatedAt.toISOString(),
+        lastUpdatedBy: saved.updatedBy.displayName,
+      });
+      expect(res.body.files[0].updatedAt).toBe(listed.updatedAt);
+      expect(res.body.files[0].lastUpdatedBy).toBe(listed.lastUpdatedBy);
+    });
+
+    it('create・errorの場合は、最終更新日時・最終更新者を含めない', async () => {
+      const res = await agent
+        .post(previewUrl())
+        .attach('files', simpleSheet(), uniqueFileName())
+        .attach('files', toXlsxBuffer([['ID', '項目']]), 'invalid_format.xlsx')
+        .expect(200);
+
+      const [created, errored] = res.body.files;
+      expect(created.operation).toBe('create');
+      expect(errored.operation).toBe('error');
+      for (const file of [created, errored]) {
+        expect(file).not.toHaveProperty('updatedAt');
+        expect(file).not.toHaveProperty('lastUpdatedBy');
+      }
+    });
+  });
+
   describe('DELETE /projects/:id/test-files/:fileId - 登録取消', () => {
     const deleteUrl = (fileId: string): string =>
       `/projects/${fixture.projectId}/test-files/${fileId}`;

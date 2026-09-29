@@ -189,7 +189,16 @@ export class TestFilesService {
     // 既存ファイル一覧を取得
     const existingFiles = await this.prisma.testFile.findMany({
       where: { projectId },
-      select: { id: true, name: true, version: true, targetCount: true, okCount: true, ngCount: true },
+      select: {
+        id: true,
+        name: true,
+        version: true,
+        targetCount: true,
+        okCount: true,
+        ngCount: true,
+        updatedAt: true,
+        updatedBy: { select: { displayName: true } },
+      },
     });
     const existingFileMap = new Map(existingFiles.map((f) => [f.name, f]));
 
@@ -224,6 +233,8 @@ export class TestFilesService {
           baseVersion: existingFile.version,
           currentProgressRate,
           newProgressRate,
+          updatedAt: existingFile.updatedAt,
+          lastUpdatedBy: existingFile.updatedBy.displayName,
           parsedData,
         });
       } else {
