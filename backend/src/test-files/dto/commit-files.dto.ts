@@ -6,60 +6,60 @@ import {
   IsIn,
   IsUUID,
   IsInt,
-  IsOptional,
-  IsNumber,
   Min,
   ValidateIf,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
 class ParsedDataDto {
-  @IsInt()
-  @Min(0)
+  @IsInt({ message: '対象件数は整数で指定してください。' })
+  @Min(0, { message: '対象件数は0以上で指定してください。' })
   targetCount: number;
 
-  @IsInt()
-  @Min(0)
+  @IsInt({ message: 'OK件数は整数で指定してください。' })
+  @Min(0, { message: 'OK件数は0以上で指定してください。' })
   okCount: number;
 
-  @IsInt()
-  @Min(0)
+  @IsInt({ message: 'NG件数は整数で指定してください。' })
+  @Min(0, { message: 'NG件数は0以上で指定してください。' })
   ngCount: number;
 
-  @IsInt()
-  @Min(0)
+  @IsInt({ message: '未実施件数は整数で指定してください。' })
+  @Min(0, { message: '未実施件数は0以上で指定してください。' })
   notRunCount: number;
 
-  @IsInt()
-  @Min(0)
+  @IsInt({ message: '対象外件数は整数で指定してください。' })
+  @Min(0, { message: '対象外件数は0以上で指定してください。' })
   excludedCount: number;
 }
 
 class CommitFileDto {
-  @IsString()
+  @IsString({ message: 'ファイル名は文字列で指定してください。' })
   fileName: string;
 
-  @IsIn(['create', 'update'])
+  @IsIn(['create', 'update'], {
+    message: 'operationはcreate、updateのいずれかで指定してください。',
+  })
   operation: 'create' | 'update';
 
   @ValidateIf((o) => o.operation === 'update')
-  @IsUUID('4')
+  @IsUUID('4', { message: 'existingFileIdの形式が正しくありません。' })
   existingFileId?: string;
 
   @ValidateIf((o) => o.operation === 'update')
-  @IsInt()
-  @Min(1)
+  @IsInt({ message: 'baseVersionは整数で指定してください。' })
+  @Min(1, { message: 'baseVersionは1以上で指定してください。' })
   baseVersion?: number;
 
   // @ValidateNestedは値がundefined/nullだと検証をスキップするため、必須チェックを別途付ける
-  @IsDefined()
+  @IsDefined({ message: 'parsedDataは必須です。' })
   @ValidateNested()
   @Type(() => ParsedDataDto)
   parsedData: ParsedDataDto;
 }
 
 export class CommitFilesDto {
-  @IsArray()
+  @IsArray({ message: 'filesは配列で指定してください。' })
   @ValidateNested({ each: true })
   @Type(() => CommitFileDto)
   files: CommitFileDto[];

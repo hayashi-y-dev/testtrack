@@ -150,6 +150,91 @@ describe('テストファイルAPI (e2e)', () => {
     });
   });
 
+  describe('POST /projects/:id/test-files/commit - バリデーションメッセージ', () => {
+    // 入れ子の項目のメッセージには、NestのValidationPipeが「files.0.」等の項目パスを前置する
+    const validFile = {
+      fileName: 'message_check.xlsx',
+      operation: 'create',
+      parsedData: PARSED_DATA,
+    };
+    const validUpdate = {
+      ...validFile,
+      operation: 'update',
+      existingFileId: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+      baseVersion: 1,
+    };
+
+    const expectMessage = async (
+      body: object,
+      expected: string,
+    ): Promise<void> => {
+      const res = await agent.post(commitUrl()).send(body).expect(400);
+      expect(res.body.message).toContain(expected);
+    };
+
+    it.each([
+      ['filesが配列でない', { files: 'x' }, 'filesは配列で指定してください。'],
+      [
+        'fileNameが欠落',
+        { files: [{ ...validFile, fileName: undefined }] },
+        'files.0.ファイル名は文字列で指定してください。',
+      ],
+      [
+        'operationが不正',
+        { files: [{ ...validFile, operation: 'delete' }] },
+        'files.0.operationはcreate、updateのいずれかで指定してください。',
+      ],
+      [
+        'parsedDataが欠落',
+        { files: [{ ...validFile, parsedData: undefined }] },
+        'files.0.parsedDataは必須です。',
+      ],
+      [
+        'existingFileIdがUUIDでない',
+        { files: [{ ...validUpdate, existingFileId: 'abc' }] },
+        'files.0.existingFileIdの形式が正しくありません。',
+      ],
+      [
+        'baseVersionが整数でない',
+        { files: [{ ...validUpdate, baseVersion: 1.5 }] },
+        'files.0.baseVersionは整数で指定してください。',
+      ],
+      [
+        'baseVersionが0',
+        { files: [{ ...validUpdate, baseVersion: 0 }] },
+        'files.0.baseVersionは1以上で指定してください。',
+      ],
+    ])('%sの場合は日本語のメッセージを返す', async (_label, body, expected) => {
+      await expectMessage(body, expected);
+    });
+
+    it.each([
+      ['targetCount', '対象件数'],
+      ['okCount', 'OK件数'],
+      ['ngCount', 'NG件数'],
+      ['notRunCount', '未実施件数'],
+      ['excludedCount', '対象外件数'],
+    ])(
+      'parsedData.%sが整数でない・負数の場合は「%s」のメッセージを返す',
+      async (field, label) => {
+        const withValue = (value: number): object => ({
+          files: [
+            { ...validFile, parsedData: { ...PARSED_DATA, [field]: value } },
+          ],
+        });
+
+        await expectMessage(
+          withValue(1.5),
+          `files.0.parsedData.${label}は整数で指定してください。`,
+        );
+        await expectMessage(
+          withValue(-1),
+          `files.0.parsedData.${label}は0以上で指定してください。`,
+        );
+      },
+    );
+  });
+
   describe('POST /projects/:id/test-files/commit - 同時実行時の整合性', () => {
     it(
       '同じbaseVersionの更新が同時に届いても成功は1件だけで、version・履歴に不整合が残らない',
