@@ -175,6 +175,7 @@ export class ExcelParserService {
     const statusKeywords = [
       '実施状況',
       '実施状態',
+      '実施結果',
       'ステータス',
       '状態',
       '結果',
