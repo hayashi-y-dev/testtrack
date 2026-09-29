@@ -53,14 +53,17 @@ class CommitFileDto {
 
   // @ValidateNestedは値がundefined/nullだと検証をスキップするため、必須チェックを別途付ける
   @IsDefined({ message: 'parsedDataは必須です。' })
-  @ValidateNested()
+  @ValidateNested({ message: 'オブジェクト形式で指定してください。' })
   @Type(() => ParsedDataDto)
   parsedData: ParsedDataDto;
 }
 
 export class CommitFilesDto {
   @IsArray({ message: 'filesは配列で指定してください。' })
-  @ValidateNested({ each: true })
+  @ValidateNested({
+    each: true,
+    message: '配列の要素はオブジェクト形式で指定してください。',
+  })
   @Type(() => CommitFileDto)
   files: CommitFileDto[];
 }

@@ -209,6 +209,45 @@ describe('テストファイルAPI (e2e)', () => {
     });
 
     it.each([
+      [
+        'filesが配列でない',
+        { files: 'x' },
+        [
+          'filesは配列で指定してください。',
+          '配列の要素はオブジェクト形式で指定してください。',
+        ],
+      ],
+      [
+        'filesの要素がオブジェクトでない',
+        { files: ['x'] },
+        ['files.配列の要素はオブジェクト形式で指定してください。'],
+      ],
+    ])('%sの場合は、日本語のメッセージだけを返す', async (_label, body, expected) => {
+      const res = await agent.post(commitUrl()).send(body).expect(400);
+      expect(res.body.message).toEqual(expected);
+    });
+
+    it.each([
+      ['null', null],
+      ['オブジェクトでない', 'x'],
+    ])(
+      'parsedDataが%sの場合は、ValidateNestedの既定の英語メッセージが混ざらない',
+      async (_label, parsedData) => {
+        const res = await agent
+          .post(commitUrl())
+          .send({ files: [{ ...validFile, parsedData }] })
+          .expect(400);
+
+        const messages = res.body.message as string[];
+        expect(messages.length).toBeGreaterThan(0);
+        expect(
+          messages.every((m) => /[ぁ-んァ-ヶ一-龠]/.test(m)),
+          JSON.stringify(messages),
+        ).toBe(true);
+      },
+    );
+
+    it.each([
       ['targetCount', '対象件数'],
       ['okCount', 'OK件数'],
       ['ngCount', 'NG件数'],
