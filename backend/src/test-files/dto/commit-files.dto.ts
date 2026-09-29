@@ -1,6 +1,7 @@
 import {
   IsArray,
   IsDefined,
+  IsObject,
   ValidateNested,
   IsString,
   IsIn,
@@ -53,6 +54,8 @@ class CommitFileDto {
 
   // @ValidateNestedは値がundefined/nullだと検証をスキップするため、必須チェックを別途付ける
   @IsDefined({ message: 'parsedDataは必須です。' })
+  // @ValidateNestedは配列も通してしまい、空配列だと中身の検証もされず素通りするため、オブジェクトに限定する
+  @IsObject({ message: 'parsedDataはオブジェクト形式で指定してください。' })
   @ValidateNested({ message: 'オブジェクト形式で指定してください。' })
   @Type(() => ParsedDataDto)
   parsedData: ParsedDataDto;

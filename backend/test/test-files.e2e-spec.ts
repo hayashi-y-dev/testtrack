@@ -109,6 +109,8 @@ describe('テストファイルAPI (e2e)', () => {
       ['欠落している', {}],
       ['nullである', { parsedData: null }],
       ['オブジェクトでない', { parsedData: 'invalid' }],
+      ['空の配列である', { parsedData: [] }],
+      ['配列である（中身は正しい形式）', { parsedData: [PARSED_DATA] }],
     ])(
       'create時にparsedDataが%s場合は400になり、登録されない',
       async (_label, parsedDataField) => {
@@ -221,6 +223,11 @@ describe('テストファイルAPI (e2e)', () => {
         'filesの要素がオブジェクトでない',
         { files: ['x'] },
         ['files.配列の要素はオブジェクト形式で指定してください。'],
+      ],
+      [
+        'parsedDataが配列',
+        { files: [{ ...validFile, parsedData: [] }] },
+        ['files.0.parsedDataはオブジェクト形式で指定してください。'],
       ],
     ])('%sの場合は、日本語のメッセージだけを返す', async (_label, body, expected) => {
       const res = await agent.post(commitUrl()).send(body).expect(400);
