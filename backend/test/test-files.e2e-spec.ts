@@ -469,4 +469,57 @@ describe('テストファイルAPI (e2e)', () => {
       20_000,
     );
   });
+
+  describe('GET /projects/:id/test-files - 並び順', () => {
+    // 他のテストで登録したファイルと混ざらないよう、専用の名前で作り検索（q）で絞り込む
+    const SORT_PREFIX = '並び順検証_';
+
+    const listFileNames = async (
+      query: Record<string, string>,
+    ): Promise<string[]> => {
+      const res = await agent
+        .get(`/projects/${fixture.projectId}/test-files`)
+        .query({ q: SORT_PREFIX, limit: 'all', ...query })
+        .expect(200);
+      return (res.body as { files: { fileName: string }[] }).files.map(
+        (f) => f.fileName,
+      );
+    };
+
+    beforeAll(async () => {
+      // 進捗率をすべて同じにして、progress順では同着（第2ソートキーで並ぶ）状態にする
+      await prisma.testFile.createMany({
+        data: ['10', '2', '1'].map((n) => ({
+          projectId: fixture.projectId,
+          name: `${SORT_PREFIX}${n}.xlsx`,
+          ...PARSED_DATA,
+          lastUpdatedBy: fixture.userId,
+        })),
+      });
+    });
+
+    it('名前順は数字を数値として比較する自然順になる', async () => {
+      expect(await listFileNames({ sort: 'name', order: 'asc' })).toEqual([
+        '並び順検証_1.xlsx',
+        '並び順検証_2.xlsx',
+        '並び順検証_10.xlsx',
+      ]);
+      expect(await listFileNames({ sort: 'name', order: 'desc' })).toEqual([
+        '並び順検証_10.xlsx',
+        '並び順検証_2.xlsx',
+        '並び順検証_1.xlsx',
+      ]);
+    });
+
+    it.each(['asc', 'desc'])(
+      '進捗率が同じ場合は、order=%sでもファイル名の自然順（昇順）で並ぶ',
+      async (order) => {
+        expect(await listFileNames({ sort: 'progress', order })).toEqual([
+          '並び順検証_1.xlsx',
+          '並び順検証_2.xlsx',
+          '並び順検証_10.xlsx',
+        ]);
+      },
+    );
+  });
 });

@@ -144,7 +144,9 @@ export class TestFilesService {
 
       switch (sort) {
         case 'name':
-          comparison = a.fileName.localeCompare(b.fileName, 'ja');
+          comparison = a.fileName.localeCompare(b.fileName, 'ja', {
+            numeric: true,
+          });
           break;
         case 'progress':
           // nullは最後に配置（ascなら最後、descなら最初）
@@ -163,12 +165,12 @@ export class TestFilesService {
           break;
       }
 
-      // 第2ソートキー: ファイル名の自然順
-      if (comparison === 0) {
-        comparison = a.fileName.localeCompare(b.fileName, 'ja');
+      if (comparison !== 0) {
+        return comparison * direction;
       }
 
-      return comparison * direction;
+      // 第2ソートキー: ファイル名の自然順。主キーがdescでも反転させず、常に昇順で固定する
+      return a.fileName.localeCompare(b.fileName, 'ja', { numeric: true });
     });
   }
 
