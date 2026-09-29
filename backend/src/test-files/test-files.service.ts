@@ -182,6 +182,7 @@ export class TestFilesService {
   ): Promise<PreviewResponse> {
     // 権限チェック（テスター・管理者のみ）
     await this.requireTesterOrAdmin(userId, projectId);
+    await this.requireProjectActive(projectId);
 
     // 既存ファイル一覧を取得
     const existingFiles = await this.prisma.testFile.findMany({
@@ -502,7 +503,7 @@ export class TestFilesService {
   }
 
   /**
-   * 終了済みプロジェクトなら403を投げる（書き込み系メソッドでのみ呼ぶ）
+   * 終了済みプロジェクトなら403を投げる（読込のプレビューを含む更新系操作でのみ呼ぶ）
    */
   private async requireProjectActive(projectId: string): Promise<void> {
     // 参加確認（404）より後に呼ぶ。先に判定すると、未参加者にも終了済みかどうかが伝わってしまうため

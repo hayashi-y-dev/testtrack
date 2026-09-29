@@ -91,6 +91,28 @@ describe('終了済みプロジェクトでの更新系操作の制限 (e2e)', (
   });
 
   describe('テストファイルAPI', () => {
+    it('Excel読込のプレビュー（preview）は403になる', async () => {
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(
+        workbook,
+        XLSX.utils.aoa_to_sheet([
+          ['No', '結果'],
+          [1, 'OK'],
+        ]),
+        'テスト',
+      );
+      const buffer = XLSX.write(workbook, {
+        type: 'buffer',
+        bookType: 'xlsx',
+      }) as Buffer;
+
+      const res = await agent
+        .post(projectPath('/test-files/preview'))
+        .attach('files', buffer, 'archived_preview.xlsx');
+
+      expectArchivedError(res);
+    });
+
     it('Excel読込の実行（commit）は403になり、登録されない', async () => {
       const name = 'archived_e2e_new.xlsx';
 
@@ -182,28 +204,10 @@ describe('終了済みプロジェクトでの更新系操作の制限 (e2e)', (
   });
 
   describe('制限の対象外・判定順', () => {
-    it('読み取り系の操作（詳細・メンバー一覧・ファイル一覧・プレビュー）は終了後も利用できる', async () => {
+    it('読み取り系の操作（詳細・メンバー一覧・ファイル一覧）は終了後も利用できる', async () => {
       await agent.get(projectPath()).expect(200);
       await agent.get(projectPath('/members')).expect(200);
       await agent.get(projectPath('/test-files')).expect(200);
-
-      const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(
-        workbook,
-        XLSX.utils.aoa_to_sheet([
-          ['No', '結果'],
-          [1, 'OK'],
-        ]),
-        'テスト',
-      );
-      const buffer = XLSX.write(workbook, {
-        type: 'buffer',
-        bookType: 'xlsx',
-      }) as Buffer;
-      await agent
-        .post(projectPath('/test-files/preview'))
-        .attach('files', buffer, 'archived_preview.xlsx')
-        .expect(200);
     });
 
     it('未参加のユーザーには、終了済みであることを伝えず404を返す', async () => {
