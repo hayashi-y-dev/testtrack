@@ -2,3 +2,9 @@
 CLAUDE.md
 docs/
 .claude/
+
+# 環境変数ファイル（本物の認証情報を含むため、どのディレクトリでも除外する）
+# 変数名を共有するひな形（値なし）の .env.example だけはコミットする
+.env
+.env.*
+!.env.example

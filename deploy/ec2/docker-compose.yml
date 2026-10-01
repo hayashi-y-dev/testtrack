@@ -1,0 +1,35 @@
+# EC2（本番）で動かすPostgreSQLの設定（docs/aws-architecture.md 4-3章）。
+# 費用の制約からRDSを常設せず、EC2上のDockerでDBを同居させる方針のため、このファイルで起動する。
+# 起動は、このディレクトリで `docker compose up -d` を実行する。
+#
+# 認証情報はこのファイルにもリポジトリにも書かない。本物の値はParameter Storeで管理し（4-4章）、
+# 起動時に環境変数またはこのディレクトリの .env で渡す（変数名は .env.example を参照）。
+
+# 開発用（backend/docker-compose.yml）とボリューム等の名前が衝突しないよう、プロジェクト名を固定する
+name: testtrack-ec2
+
+services:
+  db:
+    image: postgres:16
+    container_name: testtrack-db
+    # 未設定・空のまま起動しようとした場合は、デフォルト値で動かさずエラーで止める。
+    # 推測しやすい値で本番DBが立ち上がってしまう事故を、起動の時点で気づけるようにするため。
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DBが未設定です。.env.exampleを参照して設定してください}
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USERが未設定です。.env.exampleを参照して設定してください}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORDが未設定です。.env.exampleを参照して設定してください}
+    # 127.0.0.1に限定して公開し、同じEC2上のバックエンドからだけ接続できるようにする。
+    # Dockerが公開したポートはOSのファイアウォール設定を迂回することがあるため、
+    # セキュリティグループで5432番を閉じるだけでなく、Docker側でも外部に出さない（5章チェックリスト）。
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    # EC2を再起動（平日の起動・停止スケジュールを含む）した後も、Dockerの起動にあわせて自動で立ち上げる。
+    # 保守などで意図して止めたときは止めたままにしたいので、alwaysではなくunless-stoppedにしている。
+    # ※ Docker自体がOS起動時に自動で起動する設定（systemctl enable docker）になっていることが前提。
+    restart: unless-stopped
+
+volumes:
+  # コンテナを作り直してもデータが消えないよう、名前付きボリュームに保存する
+  db-data:

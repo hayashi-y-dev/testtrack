@@ -1,11 +1,18 @@
+# 手元の開発専用のPostgreSQL設定。本番（EC2）では使わない。
+# EC2用の設定は deploy/ec2/docker-compose.yml にあり、認証情報は環境変数から読み込む。
 services:
   db:
     image: postgres:16
     container_name: testtrack-db
+    # DB名・ユーザー名・パスワードは、手元の開発でしか使わないダミー値をあえて直書きしている。
+    # clone直後に `docker compose up -d` だけで起動でき、backend/.env の DATABASE_URL とも
+    # 値を揃えやすいため。本物の認証情報はここに書かない（本番はParameter Storeで管理する）。
     environment:
       POSTGRES_DB: testtrack
       POSTGRES_USER: testtrack
       POSTGRES_PASSWORD: testtrack
+    # 手元のGUIツール等から接続しやすいよう全インターフェースで公開している。
+    # 本番では外部に公開しないため、EC2用の設定とはここが異なる。
     ports:
       - "5432:5432"
     volumes:
