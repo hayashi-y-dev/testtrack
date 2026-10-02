@@ -16,7 +16,7 @@ import {
 } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import type { Request } from 'express';
-import 'multer';
+import type {} from 'multer';
 import { TestFilesService } from './test-files.service.js';
 import { TestFilesQueryDto } from './dto/test-files-query.dto.js';
 import { CommitFilesDto } from './dto/commit-files.dto.js';
