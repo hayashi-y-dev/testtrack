@@ -1,10 +1,12 @@
 import {
   Injectable,
+  Logger,
   UnauthorizedException,
   BadRequestException,
 } from '@nestjs/common';
 import { randomBytes, createHash } from 'crypto';
 import bcrypt from 'bcrypt';
+import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2';
 import type { PasswordResetToken } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { LoginDto } from './dto/login.dto.js';
@@ -24,8 +26,15 @@ const TOKEN_EXPIRY_MINUTES = 30;
 const INVALID_TOKEN_MESSAGE =
   'このリンクは利用できません。有効期限が切れているか、すでに使用されています。';
 
+const SES_REGION = 'ap-northeast-1';
+const PASSWORD_RESET_MAIL_SUBJECT = '【TestTrack】パスワード再設定のご案内';
+
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+  // 認証情報は指定せず、EC2のIAMロールからSDKに自動で取得させる
+  private readonly sesClient = new SESv2Client({ region: SES_REGION });
+
   constructor(private readonly prisma: PrismaService) {}
 
   async login(
@@ -88,8 +97,13 @@ export class AuthService {
         },
       });
 
-      // メール送信（開発環境はログ出力、本番環境はSES）
-      await this.sendPasswordResetEmail(user.email, rawToken);
+      // メール送信（開発環境はログ出力、本番環境はSES）。
+      // 失敗しても成功レスポンスを返し、失敗はサーバーログにだけ残す（再設定URL・トークンはログに出さない）。
+      // 失敗時だけエラーを返すと、応答の違いからメールアドレスが登録済みだと推測できてしまうため。
+      // 同じ理由で送信完了も待たない。待つと、登録済みの場合だけ応答が遅くなるため。
+      void this.sendPasswordResetEmail(user.email, rawToken).catch(
+        (error: unknown) => this.logPasswordResetEmailError(user.email, error),
+      );
     }
 
     return {
@@ -176,9 +190,7 @@ export class AuthService {
     const resetUrl = `${frontendUrl}/password-reset?token=${rawToken}`;
 
     if (isProduction) {
-      // TODO: Amazon SESでメール送信（今回のスコープ外）
-      // await this.sendEmailViaSes(email, resetUrl);
-      console.log(`[SES] Sending password reset email to ${email}`);
+      await this.sendPasswordResetEmailViaSes(email, resetUrl);
     } else {
       // 開発環境: コンソールにURL出力
       console.log('========================================');
@@ -186,5 +198,48 @@ export class AuthService {
       console.log(resetUrl);
       console.log('========================================');
     }
+  }
+
+  private async sendPasswordResetEmailViaSes(
+    email: string,
+    resetUrl: string,
+  ): Promise<void> {
+    const fromAddress = process.env.SES_FROM_ADDRESS;
+    if (!fromAddress) {
+      throw new Error('環境変数SES_FROM_ADDRESSが未設定です');
+    }
+
+    const body = [
+      'パスワード再設定のご依頼を受け付けました。',
+      `下のURLから、${TOKEN_EXPIRY_MINUTES}分以内にパスワードを再設定してください。`,
+      resetUrl,
+      'このメールに心当たりがない場合は、何もせずこのメールを破棄してください。',
+    ].join('\n');
+
+    const result = await this.sesClient.send(
+      new SendEmailCommand({
+        FromEmailAddress: fromAddress,
+        Destination: { ToAddresses: [email] },
+        Content: {
+          Simple: {
+            Subject: { Data: PASSWORD_RESET_MAIL_SUBJECT, Charset: 'UTF-8' },
+            Body: { Text: { Data: body, Charset: 'UTF-8' } },
+          },
+        },
+      }),
+    );
+    this.logger.log(
+      `パスワード再設定メールを送信しました（宛先: ${email}、MessageId: ${result.MessageId}）`,
+    );
+  }
+
+  private logPasswordResetEmailError(email: string, error: unknown): void {
+    const reason =
+      error instanceof Error
+        ? `${error.name}: ${error.message}`
+        : String(error);
+    this.logger.error(
+      `パスワード再設定メールを送信できませんでした（宛先: ${email}）: ${reason}`,
+    );
   }
 }
