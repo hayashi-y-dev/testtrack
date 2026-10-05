@@ -32,6 +32,8 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# 変数名を共有するひな形（値はダミー）の .env.example だけはコミットする
+!.env.example
 
 # vercel
 .vercel

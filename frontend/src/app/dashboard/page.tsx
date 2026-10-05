@@ -1,6 +1,9 @@
 'use client';
 
 import { useState, useRef, useCallback, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { apiPost, NETWORK_ERROR_MESSAGE } from '@/lib/api';
+import Toast from '@/components/Toast';
 import styles from './dashboard.module.css';
 
 /**
@@ -139,6 +142,7 @@ const ALL_USERS = [
 ];
 
 export default function DashboardPage() {
+  const router = useRouter();
   const [projects, setProjects] = useState(MOCK_PROJECTS);
   const [activeProjectId, setActiveProjectId] = useState(MOCK_PROJECTS[0]?.id ?? '');
   const [activeProjectDetail, setActiveProjectDetail] = useState<ProjectDetail | null>(null);
@@ -146,6 +150,9 @@ export default function DashboardPage() {
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [activeNav, setActiveNav] = useState<'dashboard' | 'settings'>('dashboard');
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  // id は、同じ文言を続けて通知したときにもトーストを作り直して表示時間をやり直すために使う
+  const [toast, setToast] = useState<{ id: number; message: string } | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterSegment, setFilterSegment] = useState<'all' | 'incomplete' | 'complete'>('all');
   const [displayLimit, setDisplayLimit] = useState<5 | 10 | 'all'>(5);
@@ -503,6 +510,29 @@ export default function DashboardPage() {
     }
   };
 
+  const handleLogout = async () => {
+    if (isLoggingOut) {
+      return;
+    }
+    setIsLoggingOut(true);
+
+    const result = await apiPost('/auth/logout');
+
+    // 401は別タブでのログアウト済み・セッション期限切れ等で、すでにログアウトしている状態のため、成功と同じ扱いにする
+    if (result.ok || result.status === 401) {
+      router.push('/login');
+      return;
+    }
+
+    setToast({
+      id: Date.now(),
+      message: result.status === 500 && result.messages.length > 0
+        ? result.messages[0]
+        : NETWORK_ERROR_MESSAGE,
+    });
+    setIsLoggingOut(false);
+  };
+
   const uploadErrorCount = uploadFiles.filter(f => f.status === 'error').length;
   const uploadValidCount = uploadFiles.length - uploadErrorCount;
   const uploadSuccessCount = uploadFiles.filter(f => f.resultStatus === 'success').length;
@@ -542,7 +572,9 @@ export default function DashboardPage() {
             </svg>
             {isUserMenuOpen && (
               <div className={styles.userDropdown}>
-                <div className={styles.userDropdownItem}>ログアウト</div>
+                <div className={styles.userDropdownItem} onClick={handleLogout}>
+                  {isLoggingOut ? 'ログアウト中...' : 'ログアウト'}
+                </div>
               </div>
             )}
           </div>
@@ -1591,6 +1623,10 @@ export default function DashboardPage() {
             )}
           </div>
         </div>
+      )}
+
+      {toast && (
+        <Toast key={toast.id} message={toast.message} onClose={() => setToast(null)} />
       )}
     </div>
   );

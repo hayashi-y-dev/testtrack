@@ -3,11 +3,8 @@
 import { useState, type SubmitEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { apiPost, NETWORK_ERROR_MESSAGE } from '@/lib/api';
 import styles from './login.module.css';
-
-// 仮のログイン情報（API実装後は削除）
-const DEMO_EMAIL = 'demo@example.com';
-const DEMO_PASSWORD = 'password';
 
 /**
  * ログイン画面
@@ -20,7 +17,8 @@ export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
-  const [loginError, setLoginError] = useState<string | null>(null);
+  // APIの400は複数のメッセージを返しうるため、配列で持つ（api-design.md 0-3）
+  const [loginErrors, setLoginErrors] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   /**
@@ -52,7 +50,7 @@ export default function LoginPage() {
 
   const handleSubmit = async (e: SubmitEvent<HTMLFormElement>) => {
     e.preventDefault();
-    setLoginError(null);
+    setLoginErrors([]);
 
     if (!validateForm()) {
       return;
@@ -60,25 +58,22 @@ export default function LoginPage() {
 
     setIsSubmitting(true);
 
-    // API未実装のため、仮実装としてコンソールログ出力
-    console.log('ログイン試行:', {
-      email: email.trim(),
-      password: '********', // セキュリティのため実際の値は出力しない
-    });
+    const result = await apiPost('/auth/login', { email: email.trim(), password });
 
-    // 仮のログイン処理シミュレーション
-    // 実際のAPI実装後はここでAPIを呼び出す
-    setTimeout(() => {
-      const trimmedEmail = email.trim();
-      if (trimmedEmail === DEMO_EMAIL && password === DEMO_PASSWORD) {
-        // ログイン成功: ダッシュボードへ遷移
-        router.push('/dashboard');
-      } else {
-        // ログイン失敗（仕様書1-1: どちらが誤りか特定しない文言）
-        setLoginError('メールアドレスまたはパスワードが正しくありません。');
-        setIsSubmitting(false);
-      }
-    }, 500);
+    if (result.ok) {
+      // 遷移が終わるまで送信ボタンを無効のままにし、二重送信を防ぐ
+      router.push('/dashboard');
+      return;
+    }
+
+    // 401（どちらが誤りか特定しない文言。仕様書1-1）と400はAPIの文言を表示する。
+    // 500・通信失敗はAPIの文言を表示できない（英語の既定文言や、本文がない場合がある）ため共通の文言にする
+    if ((result.status === 400 || result.status === 401) && result.messages.length > 0) {
+      setLoginErrors(result.messages);
+    } else {
+      setLoginErrors([NETWORK_ERROR_MESSAGE]);
+    }
+    setIsSubmitting(false);
   };
 
   return (
@@ -95,10 +90,14 @@ export default function LoginPage() {
       <div className={styles.card}>
         <h1 className={styles.cardTitle}>ログイン</h1>
 
-        {loginError && (
+        {loginErrors.length > 0 && (
           <div className={styles.errorBanner}>
             <div className={styles.errorIcon}>!</div>
-            <div>{loginError}</div>
+            <div>
+              {loginErrors.map((message) => (
+                <div key={message}>{message}</div>
+              ))}
+            </div>
           </div>
         )}
 
