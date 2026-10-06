@@ -176,8 +176,7 @@ export default function PasswordResetPage() {
 
     return (
       <div>
-        <h1 className={styles.cardTitle}>新しいパスワードの設定</h1>
-        <p className={styles.cardDesc}>新しいパスワードを入力してください。</p>
+        <h1 className={styles.cardTitle}>パスワード再設定</h1>
 
         {submitErrors.length > 0 && (
           <div className={styles.errorBanner}>
