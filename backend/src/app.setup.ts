@@ -1,4 +1,5 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
+import type { Application } from 'express';
 import session from 'express-session';
 import connectPgSimple from 'connect-pg-simple';
 
@@ -24,6 +25,15 @@ export function setupApp(app: INestApplication): void {
 
   // 本番環境判定
   const isProduction = process.env.NODE_ENV === 'production';
+
+  // 同じマシン上のプロキシ（Next.jsの転送）から来たリクエストに限り、X-Forwarded-* を信用する。
+  // 本番はFunnel→Next.js→NestJSの順に転送され、NestJSへの接続自体はHTTPのため、信用しないと
+  // HTTPSでのアクセスと判断できず、secure付きのセッションCookieが発行されない。
+  // どこからでも信用する（true）と、外部から X-Forwarded-* を偽装できるため、ループバックだけに限る
+  (app.getHttpAdapter().getInstance() as Application).set(
+    'trust proxy',
+    'loopback',
+  );
 
   // バリデーションパイプを設定
   app.useGlobalPipes(
