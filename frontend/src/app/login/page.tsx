@@ -66,9 +66,10 @@ export default function LoginPage() {
       return;
     }
 
-    // 401（どちらが誤りか特定しない文言。仕様書1-1）と400はAPIの文言を表示する。
+    // 401（どちらが誤りか特定しない文言。仕様書1-1）・400・429（試行回数の上限）はAPIの文言を表示する。
     // 500・通信失敗はAPIの文言を表示できない（英語の既定文言や、本文がない場合がある）ため共通の文言にする
-    if ((result.status === 400 || result.status === 401) && result.messages.length > 0) {
+    const showsApiMessage = [400, 401, 429].includes(result.status);
+    if (showsApiMessage && result.messages.length > 0) {
       setLoginErrors(result.messages);
     } else {
       setLoginErrors([NETWORK_ERROR_MESSAGE]);

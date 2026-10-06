@@ -10,6 +10,7 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
+import { ThrottlerGuard } from '@nestjs/throttler';
 import { AuthService } from './auth.service.js';
 import { LoginDto } from './dto/login.dto.js';
 import {
@@ -25,6 +26,8 @@ export class AuthController {
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
+  // 成功・失敗を問わず、クライアントIP（trust proxy により X-Forwarded-For の値）ごとに試行を数える
+  @UseGuards(ThrottlerGuard)
   async login(
     @Body() dto: LoginDto,
     @Req() req: Request,
