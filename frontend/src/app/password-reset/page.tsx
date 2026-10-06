@@ -2,6 +2,7 @@
 
 import { useState, type SubmitEvent } from 'react';
 import Link from 'next/link';
+import { apiPost, NETWORK_ERROR_MESSAGE } from '@/lib/api';
 import styles from './password-reset.module.css';
 
 /**
@@ -15,6 +16,8 @@ export default function PasswordResetRequestPage() {
   const [emailError, setEmailError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSent, setIsSent] = useState(false);
+  // APIの400は複数のメッセージを返しうるため、配列で持つ（api-design.md 0-3）
+  const [requestErrors, setRequestErrors] = useState<string[]>([]);
 
   /**
    * メールアドレスのバリデーション（仕様書1-6準拠）
@@ -47,6 +50,7 @@ export default function PasswordResetRequestPage() {
 
   const handleSubmit = async (e: SubmitEvent<HTMLFormElement>) => {
     e.preventDefault();
+    setRequestErrors([]);
 
     if (!validateEmail()) {
       return;
@@ -54,19 +58,17 @@ export default function PasswordResetRequestPage() {
 
     setIsSubmitting(true);
 
-    // API未実装のため、仮実装としてコンソールログ出力
-    console.log('パスワード再設定申請:', {
-      email: email.trim(),
-    });
+    const result = await apiPost('/auth/password-reset-request', { email: email.trim() });
 
-    // 仮のAPI呼び出しシミュレーション
-    // 実際のAPI実装後はここでAPIを呼び出す
-    setTimeout(() => {
-      // 仕様書1-5: 未登録メールでも登録済みと同じメッセージを表示
-      // → 常に送信完了状態を表示
+    // 仕様書1-5: 登録の有無を推測させないため、200なら常に同じ送信完了状態を表示する
+    if (result.ok) {
       setIsSent(true);
-      setIsSubmitting(false);
-    }, 500);
+    } else if (result.status === 400 && result.messages.length > 0) {
+      setRequestErrors(result.messages);
+    } else {
+      setRequestErrors([NETWORK_ERROR_MESSAGE]);
+    }
+    setIsSubmitting(false);
   };
 
   return (
@@ -90,6 +92,17 @@ export default function PasswordResetRequestPage() {
               <br />
               再設定用のリンクをメールで送信します。
             </p>
+
+            {requestErrors.length > 0 && (
+              <div className={styles.errorBanner}>
+                <div className={styles.errorIcon}>!</div>
+                <div>
+                  {requestErrors.map((message) => (
+                    <div key={message}>{message}</div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <form onSubmit={handleSubmit} noValidate>
               <div className={`${styles.field} ${emailError ? styles.fieldError : ''}`}>

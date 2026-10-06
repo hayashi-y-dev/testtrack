@@ -249,3 +249,108 @@
   color: var(--text-faint);
   margin-top: 24px;
 }
+
+/* ===== APIエラー（フォーム上部にまとめて表示。ログイン画面と同じ見た目） ===== */
+.errorBanner {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  background: var(--fail-dim);
+  border: 1px solid rgba(225, 65, 79, 0.25);
+  color: var(--fail);
+  font-size: 12.5px;
+  line-height: 1.5;
+  padding: 10px 12px;
+  border-radius: 8px;
+  margin-bottom: 18px;
+}
+
+.errorIcon {
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: var(--fail);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  margin-top: 1px;
+}
+
+/* ===== トークン検証中・検証失敗（ダッシュボードの読み込み中・取得失敗と同じ見た目） ===== */
+.statusArea {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 0;
+  text-align: center;
+}
+
+.spinner {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  animation: spin 0.8s linear infinite;
+  margin-bottom: 18px;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.loadingText {
+  font-size: 13.5px;
+  color: var(--text-faint);
+}
+
+.fetchErrorIcon {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--fail-dim);
+  color: var(--fail);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 18px;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.fetchErrorTitle {
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+
+.fetchErrorDesc {
+  font-size: 12.5px;
+  color: var(--text-faint);
+  margin-bottom: 22px;
+}
+
+.btnRetry {
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  font-size: 13px;
+  font-weight: 600;
+  font-family: var(--font-body);
+  padding: 9px 18px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.btnRetry:hover {
+  background: var(--surface);
+  border-color: var(--text-faint);
+}
