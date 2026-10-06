@@ -4,6 +4,7 @@ import { useState, type SubmitEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { apiPost, NETWORK_ERROR_MESSAGE } from '@/lib/api';
+import PasswordInput from '@/components/PasswordInput';
 import styles from './login.module.css';
 
 /**
@@ -129,8 +130,7 @@ export default function LoginPage() {
             <label htmlFor="password" className={styles.label}>
               パスワード
             </label>
-            <input
-              type="password"
+            <PasswordInput
               id="password"
               placeholder="••••••••"
               autoComplete="current-password"

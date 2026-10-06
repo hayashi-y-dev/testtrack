@@ -4,6 +4,7 @@ import { useState, useEffect, type SubmitEvent } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { apiPost, NETWORK_ERROR_MESSAGE } from '@/lib/api';
+import PasswordInput from '@/components/PasswordInput';
 import styles from './reset.module.css';
 
 const INVALID_LINK_PATH = '/password-reset/invalid';
@@ -194,8 +195,7 @@ export default function PasswordResetPage() {
             <label htmlFor="password" className={styles.label}>
               新しいパスワード
             </label>
-            <input
-              type="password"
+            <PasswordInput
               id="password"
               placeholder="15〜64文字"
               autoComplete="new-password"
@@ -220,8 +220,7 @@ export default function PasswordResetPage() {
             <label htmlFor="passwordConfirm" className={styles.label}>
               新しいパスワード（確認用）
             </label>
-            <input
-              type="password"
+            <PasswordInput
               id="passwordConfirm"
               placeholder="もう一度入力してください"
               autoComplete="new-password"
