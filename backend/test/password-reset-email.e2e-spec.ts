@@ -66,7 +66,7 @@ describe('パスワード再設定メールの送信 (e2e)', () => {
   const expectNoSecretsInLogs = (): void => {
     const output = allLogOutput();
     expect(output).not.toContain(FRONTEND_URL);
-    expect(output).not.toContain('token=');
+    expect(output).not.toContain('/password-reset/');
     expect(output).not.toMatch(/[0-9a-f]{64}/);
   };
 
@@ -128,7 +128,7 @@ describe('パスワード再設定メールの送信 (e2e)', () => {
         '下のURLから、30分以内にパスワードを再設定してください。',
       );
       expect(lines[2]).toMatch(
-        new RegExp(`^${FRONTEND_URL}/password-reset\\?token=[0-9a-f]{64}$`),
+        new RegExp(`^${FRONTEND_URL}/password-reset/[0-9a-f]{64}$`),
       );
       expect(lines[3]).toBe(
         'このメールに心当たりがない場合は、何もせずこのメールを破棄してください。',
@@ -149,9 +149,9 @@ describe('パスワード再設定メールの送信 (e2e)', () => {
       await requestReset(user.email);
       await waitForMailSettled();
 
-      const token = new URL(sentBody().split('\n')[2]).searchParams.get(
-        'token',
-      );
+      const token = new URL(sentBody().split('\n')[2]).pathname
+        .split('/')
+        .pop();
       const res = await request(app.getHttpServer())
         .post('/auth/password-reset-token/verify')
         .send({ token });
@@ -269,7 +269,7 @@ describe('パスワード再設定メールの送信 (e2e)', () => {
       expectSuccessResponse(res);
       await vi.waitFor(() => {
         expect(allLogOutput()).toMatch(
-          new RegExp(`${FRONTEND_URL}/password-reset\\?token=[0-9a-f]{64}`),
+          new RegExp(`${FRONTEND_URL}/password-reset/[0-9a-f]{64}`),
         );
       });
       expect(sendSpy).not.toHaveBeenCalled();

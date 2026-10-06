@@ -187,7 +187,9 @@ export class AuthService {
   ): Promise<void> {
     const isProduction = process.env.NODE_ENV === 'production';
     const frontendUrl = process.env.FRONTEND_URL ?? 'http://localhost:3000';
-    const resetUrl = `${frontendUrl}/password-reset?token=${rawToken}`;
+    // フロントの再設定画面（/password-reset/[token]）に合わせ、トークンはパスに入れる。
+    // トークンは16進数の文字だけなので、エンコードせずにそのままURLに入れられる
+    const resetUrl = `${frontendUrl}/password-reset/${rawToken}`;
 
     if (isProduction) {
       await this.sendPasswordResetEmailViaSes(email, resetUrl);
