@@ -38,6 +38,7 @@ export class AuthController {
   }
 
   @Post('logout')
+  @HttpCode(HttpStatus.OK)
   @UseGuards(AuthGuard)
   async logout(
     @Req() req: Request,
