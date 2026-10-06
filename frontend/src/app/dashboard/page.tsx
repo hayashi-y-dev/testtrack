@@ -164,6 +164,8 @@ export default function DashboardPage() {
   // 終了済みプロジェクト関連
   const [viewingArchivedProject, setViewingArchivedProject] = useState<ArchivedProject | null>(null);
   const [isArchivedMenuOpen, setIsArchivedMenuOpen] = useState(false);
+  // 終了済みメニューの表示位置。描画中にrefを読まないよう、開くときにボタンの位置から計算して持つ
+  const [archivedMenuPosition, setArchivedMenuPosition] = useState({ top: 0, right: 0 });
   const archivedMenuRef = useRef<HTMLDivElement>(null);
   const archivedFilterRef = useRef<HTMLDivElement>(null);
 
@@ -280,6 +282,15 @@ export default function DashboardPage() {
     setActiveNav('dashboard');
   };
 
+  // 終了済みメニューの開閉。開くときに、ボタンの直下・右端をそろえた位置を計算する
+  const handleToggleArchivedMenu = () => {
+    if (!isArchivedMenuOpen && archivedFilterRef.current) {
+      const rect = archivedFilterRef.current.getBoundingClientRect();
+      setArchivedMenuPosition({ top: rect.bottom + 6, right: window.innerWidth - rect.right });
+    }
+    setIsArchivedMenuOpen(!isArchivedMenuOpen);
+  };
+
   // 終了済みプロジェクト閲覧を終了して通常のプロジェクトに戻る
   const handleExitArchivedView = (projectId: string) => {
     setViewingArchivedProject(null);
@@ -348,15 +359,18 @@ export default function DashboardPage() {
     return () => document.removeEventListener('click', handleClickOutside);
   }, []);
 
-  // プロジェクト切替時にナビをリセット
-  useEffect(() => {
+  // プロジェクト切替でロールが管理者以外になったら、ナビをダッシュボードに戻す（仕様書2-4）。
+  // 「プロジェクト設定」は管理者にしか表示されないため、ナビを戻す必要があるのはロールが変わったときだけ。
+  // effectではなく描画中に前回のロールと比べて更新する（Reactの「propsの変化に合わせてstateを調整する」書き方）
+  const [prevRole, setPrevRole] = useState(currentRole);
+  if (currentRole !== prevRole) {
+    setPrevRole(currentRole);
     if (currentRole !== '管理者') {
       setActiveNav('dashboard');
     }
-  }, [activeProjectId, currentRole]);
+  }
 
   // 空状態の判定
-  const hasFiles = files.length > 0;
   const hasTestCases = stats.total > 0;
 
   // 進捗率の計算（テストケース0件の場合はNaN回避）
@@ -601,7 +615,7 @@ export default function DashboardPage() {
         <div
           ref={archivedFilterRef}
           className={`${styles.tabFilter} ${isViewingArchived ? styles.tabFilterSelected : ''}`}
-          onClick={() => setIsArchivedMenuOpen(!isArchivedMenuOpen)}
+          onClick={handleToggleArchivedMenu}
         >
           終了済み {MOCK_ARCHIVED_PROJECTS.length} 件 ▾
         </div>
@@ -609,10 +623,7 @@ export default function DashboardPage() {
           <div
             ref={archivedMenuRef}
             className={styles.archivedMenu}
-            style={{
-              top: archivedFilterRef.current ? archivedFilterRef.current.getBoundingClientRect().bottom + 6 : 0,
-              right: archivedFilterRef.current ? window.innerWidth - archivedFilterRef.current.getBoundingClientRect().right : 0,
-            }}
+            style={{ top: archivedMenuPosition.top, right: archivedMenuPosition.right }}
           >
             {MOCK_ARCHIVED_PROJECTS.map(project => (
               <div
