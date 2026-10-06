@@ -3,8 +3,9 @@ import bcrypt from 'bcrypt';
 
 const prisma = new PrismaClient();
 
-// 開発用共通パスワード
-const DEV_PASSWORD = 'Password1234!';
+// 開発用共通パスワード。パスワード再設定の規則（15文字以上64文字以下）を満たす値にして、
+// 再設定画面でもこの値を設定できるようにする
+const DEV_PASSWORD = 'Password1234!Demo';
 const SALT_ROUNDS = 10;
 
 async function main() {
