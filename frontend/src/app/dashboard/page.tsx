@@ -35,6 +35,9 @@ type ProjectListResponse = {
   }[];
 };
 
+// POST /projects のレスポンス（api-design.md 2-2。一覧APIの1件分と同じ形）
+type CreateProjectResponse = ProjectListResponse['projects'][number];
+
 type ProgressSummary = {
   fileCount: number;
   targetCount: number;
@@ -87,6 +90,26 @@ const EMPTY_SUMMARY: ProgressSummary = {
 };
 
 const PROJECT_NOT_FOUND_MESSAGE = '指定されたプロジェクトが見つかりません。';
+
+const PROJECT_NAME_MAX_LENGTH = 50;
+
+/**
+ * プロジェクト名の入力チェック（仕様書2-2・9-1。APIの CreateProjectDto と同じ規則）
+ * 前後の空白を除いた値を受け取り、問題があればエラー文言、なければ null を返す
+ */
+function validateProjectName(trimmed: string): string | null {
+  if (trimmed === '') {
+    return 'プロジェクト名を入力してください。';
+  }
+  // 絵文字など、JavaScriptでは2文字分と数えられる文字も1文字として数える（APIの数え方に合わせる）
+  if (Array.from(trimmed).length > PROJECT_NAME_MAX_LENGTH) {
+    return `プロジェクト名は${PROJECT_NAME_MAX_LENGTH}文字以内で入力してください。`;
+  }
+  if (/[\r\n]/.test(trimmed)) {
+    return 'プロジェクト名に改行を含めることはできません。';
+  }
+  return null;
+}
 
 type FileData = {
   id: string;
@@ -189,6 +212,7 @@ export default function DashboardPage() {
   const [isCreateProjectModalOpen, setIsCreateProjectModalOpen] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
   const [newProjectNameError, setNewProjectNameError] = useState<string | null>(null);
+  const [isCreatingProject, setIsCreatingProject] = useState(false);
   const [isAddMemberModalOpen, setIsAddMemberModalOpen] = useState(false);
   const [memberSearchQuery, setMemberSearchQuery] = useState('');
   const [isTerminateModalOpen, setIsTerminateModalOpen] = useState(false);
@@ -630,6 +654,66 @@ export default function DashboardPage() {
         : NETWORK_ERROR_MESSAGE,
     });
     setIsLoggingOut(false);
+  };
+
+  const closeCreateProjectModal = () => {
+    setIsCreateProjectModalOpen(false);
+    setNewProjectName('');
+    setNewProjectNameError(null);
+  };
+
+  // プロジェクト作成（仕様書2-1、api-design.md 2-2）
+  const handleCreateProject = async () => {
+    if (isCreatingProject) {
+      return;
+    }
+    const trimmed = newProjectName.trim();
+    const nameError = validateProjectName(trimmed);
+    if (nameError) {
+      setNewProjectNameError(nameError);
+      return;
+    }
+
+    setIsCreatingProject(true);
+    const result = await apiPost<CreateProjectResponse>('/projects', { name: trimmed });
+
+    if (result.ok) {
+      const created = result.data;
+      // 一覧は取り直さず、201の内容をタブの末尾に加える。
+      // orderは既存の最大値+1で返る（api-design.md 2-2）ため、末尾に置けば一覧APIの並びと一致する
+      setProjects(prev => [
+        ...prev,
+        { id: created.id, name: created.name, role: ROLE_LABELS[created.myRole] },
+      ]);
+      // 終了済みを閲覧中に作成した場合も、作成したプロジェクトへ切り替える（仕様書2-1）
+      setViewingArchivedProject(null);
+      setActiveProjectId(created.id);
+      setActiveNav('dashboard');
+      // 直前の失敗の通知が残っていると、作成にも失敗したように見えるため消す
+      setToast(null);
+      closeCreateProjectModal();
+      setIsCreatingProject(false);
+      return;
+    }
+    if (result.status === 401) {
+      // 遷移が終わるまで作成ボタンは無効のままにする
+      router.replace('/login');
+      return;
+    }
+
+    if (result.status === 400 && result.messages.length > 0) {
+      // 空のときの「必須」と「1文字以上」のように、同じ原因で複数の文言が返ることがあるため、先頭の1件だけを出す
+      setNewProjectNameError(result.messages[0]);
+    } else {
+      // 入力した名前は残し、そのまま作成し直せるようにする（仕様書4-8「一部操作の失敗は短いエラー通知」）
+      setToast({
+        id: Date.now(),
+        message: result.status === 500 && result.messages.length > 0
+          ? result.messages[0]
+          : NETWORK_ERROR_MESSAGE,
+      });
+    }
+    setIsCreatingProject(false);
   };
 
   const uploadErrorCount = uploadFiles.filter(f => f.status === 'error').length;
@@ -1323,9 +1407,10 @@ export default function DashboardPage() {
         <div
           className={styles.modalOverlay}
           onClick={() => {
-            setIsCreateProjectModalOpen(false);
-            setNewProjectName('');
-            setNewProjectNameError(null);
+            // 作成の通信中は閉じない。閉じた後に作成が完了して、画面が切り替わるのを避けるため
+            if (!isCreatingProject) {
+              closeCreateProjectModal();
+            }
           }}
         >
           <div className={styles.modalBox} onClick={(e) => e.stopPropagation()}>
@@ -1333,10 +1418,10 @@ export default function DashboardPage() {
 
             <div className={styles.fieldGroup}>
               <label className={styles.fieldLabelSm}>プロジェクト名</label>
+              {/* maxLengthは付けない。超えた分が黙って切り捨てられるより、エラーで伝える方が分かりやすいため */}
               <input
                 type="text"
                 placeholder="プロジェクト名を入力"
-                maxLength={50}
                 value={newProjectName}
                 onChange={(e) => {
                   setNewProjectName(e.target.value);
@@ -1354,37 +1439,17 @@ export default function DashboardPage() {
             <div className={styles.modalActions}>
               <button
                 className={styles.btnMini}
-                onClick={() => {
-                  setIsCreateProjectModalOpen(false);
-                  setNewProjectName('');
-                  setNewProjectNameError(null);
-                }}
+                onClick={closeCreateProjectModal}
+                disabled={isCreatingProject}
               >
                 キャンセル
               </button>
               <button
                 className={`${styles.btnMini} ${styles.btnMiniPrimary}`}
-                onClick={() => {
-                  const trimmed = newProjectName.trim();
-                  if (!trimmed || trimmed.length > 50) {
-                    setNewProjectNameError('プロジェクト名を入力してください（1〜50文字）。');
-                    return;
-                  }
-
-                  const newProject: Project = {
-                    id: String(Date.now()),
-                    name: trimmed,
-                    role: '管理者',
-                  };
-                  setProjects(prev => [...prev, newProject]);
-                  setActiveProjectId(newProject.id);
-                  setActiveNav('dashboard');
-                  setIsCreateProjectModalOpen(false);
-                  setNewProjectName('');
-                  setNewProjectNameError(null);
-                }}
+                onClick={handleCreateProject}
+                disabled={isCreatingProject}
               >
-                作成
+                {isCreatingProject ? '作成中...' : '作成'}
               </button>
             </div>
           </div>
