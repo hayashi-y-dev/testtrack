@@ -17,11 +17,23 @@ export type ApiResult<T> =
   // 本文がJSONでない場合（バックエンド停止時に転送が失敗した場合など）は空配列になる。
   | { ok: false; status: number; messages: string[] };
 
-export async function apiPost<T>(path: string, body?: unknown): Promise<ApiResult<T>> {
+export function apiGet<T>(path: string): Promise<ApiResult<T>> {
+  return request<T>('GET', path);
+}
+
+export function apiPost<T>(path: string, body?: unknown): Promise<ApiResult<T>> {
+  return request<T>('POST', path, body);
+}
+
+async function request<T>(
+  method: 'GET' | 'POST',
+  path: string,
+  body?: unknown,
+): Promise<ApiResult<T>> {
   let response: Response;
   try {
     response = await fetch(`/api${path}`, {
-      method: 'POST',
+      method,
       headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
       body: body === undefined ? undefined : JSON.stringify(body),
     });

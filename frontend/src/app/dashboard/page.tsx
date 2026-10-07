@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { apiPost, NETWORK_ERROR_MESSAGE } from '@/lib/api';
+import { apiGet, apiPost, NETWORK_ERROR_MESSAGE } from '@/lib/api';
 import Toast from '@/components/Toast';
 import styles from './dashboard.module.css';
 
@@ -15,20 +15,78 @@ import styles from './dashboard.module.css';
  */
 
 type Role = '管理者' | 'テスター' | '閲覧者';
+type ApiRole = 'admin' | 'tester' | 'viewer';
 
-// GET /api/projects のレスポンス（タブ表示用、ロールはキャッシュ扱い）
+// APIのロールの値を、画面の表示名に変換する
+const ROLE_LABELS: Record<ApiRole, Role> = {
+  admin: '管理者',
+  tester: 'テスター',
+  viewer: '閲覧者',
+};
+
+// GET /projects のレスポンス（api-design.md 2-1）
+type ProjectListResponse = {
+  projects: {
+    id: string;
+    name: string;
+    status: 'active' | 'archived';
+    myRole: ApiRole;
+    order: number | null;
+  }[];
+};
+
+type ProgressSummary = {
+  fileCount: number;
+  targetCount: number;
+  completedCount: number;
+  progressRate: number | null;
+  okCount: number;
+  ngCount: number;
+  notRunCount: number;
+};
+
+// GET /projects/:id のレスポンス（api-design.md 2-3）
+type ProjectDetailResponse = {
+  id: string;
+  name: string;
+  status: 'active' | 'archived';
+  myRole: ApiRole;
+  createdAt: string;
+  progressSummary: ProgressSummary;
+};
+
+// 進行中プロジェクトのタブ表示用（一覧APIの値。ロールは詳細を取得するまでのキャッシュ扱い）
 type Project = {
   id: string;
   name: string;
   role: Role;
 };
 
-// GET /api/projects/:id のレスポンス（プロジェクト詳細、最新ロールを含む）
+// プロジェクト詳細（切替時に取得する最新のロールと進捗サマリー）
 type ProjectDetail = {
   id: string;
   name: string;
   role: Role;
+  progressSummary: ProgressSummary;
 };
+
+type ArchivedProject = {
+  id: string;
+  name: string;
+};
+
+// 詳細を取得するまで（または取得失敗時）に使う、すべて0件の進捗サマリー
+const EMPTY_SUMMARY: ProgressSummary = {
+  fileCount: 0,
+  targetCount: 0,
+  completedCount: 0,
+  progressRate: null,
+  okCount: 0,
+  ngCount: 0,
+  notRunCount: 0,
+};
+
+const PROJECT_NOT_FOUND_MESSAGE = '指定されたプロジェクトが見つかりません。';
 
 type FileData = {
   id: string;
@@ -50,74 +108,15 @@ type UploadFile = {
   resultStatus?: 'success' | 'conflict' | 'error';
 };
 
-// 仮データ（API実装後は削除）
-const MOCK_PROJECTS: Project[] = [
-  { id: '1', name: 'ECサイトリニューアル 総合テスト', role: '管理者' },
-  { id: '2', name: '基幹システム移行プロジェクト Phase2', role: 'テスター' },
-  { id: '3', name: 'モバイルアプリ v3.0 受け入れテスト', role: '閲覧者' },
-  { id: '4', name: '新規プロジェクト（ファイル0件）', role: '管理者' },
-  { id: '5', name: 'テストケース0件プロジェクト', role: 'テスター' },
+// テストファイル一覧の仮データ。プロジェクトIDが実際のUUIDになったため、
+// 結合5（テストファイルAPIとの結合）までは、どのプロジェクトでも同じ仮データを表示する
+const MOCK_FILES: FileData[] = [
+  { id: '1', name: 'EC機能テスト仕様書_v2.3.xlsx', progress: 95, updatedAt: '2026/08/30 18:42', updatedBy: '田中 美咲', hasHistory: true },
+  { id: '2', name: 'EC_API結合テスト仕様書_v1.5.xlsx', progress: 88, updatedAt: '2026/08/29 14:15', updatedBy: '山田 太郎', hasHistory: true },
+  { id: '3', name: 'EC_決済フロー検証テスト_v1.0.xlsx', progress: 72, updatedAt: '2026/08/28 11:07', updatedBy: '鈴木 健一', hasHistory: true },
+  { id: '4', name: 'EC_管理画面テスト仕様書_v3.1.xlsx', progress: 41, updatedAt: '2026/08/27 16:30', updatedBy: '佐藤 花子', hasHistory: true },
+  { id: '5', name: 'EC_レスポンシブUI確認テスト_詳細版_v2.0.xlsx', progress: 0, updatedAt: '2026/08/25 09:20', updatedBy: '高橋 裕子', hasHistory: false },
 ];
-
-// 終了済みプロジェクト（仮データ）
-type ArchivedProject = {
-  id: string;
-  name: string;
-};
-
-const MOCK_ARCHIVED_PROJECTS: ArchivedProject[] = [
-  { id: 'a1', name: '基幹システム改修プロジェクト' },
-  { id: 'a2', name: '旧管理画面リニューアル' },
-  { id: 'a3', name: '決済API移行検証' },
-];
-
-// プロジェクトごとのファイルデータ
-const MOCK_FILES_BY_PROJECT: Record<string, FileData[]> = {
-  '1': [
-    { id: '1', name: 'EC機能テスト仕様書_v2.3.xlsx', progress: 95, updatedAt: '2026/08/30 18:42', updatedBy: '田中 美咲', hasHistory: true },
-    { id: '2', name: 'EC_API結合テスト仕様書_v1.5.xlsx', progress: 88, updatedAt: '2026/08/29 14:15', updatedBy: '山田 太郎', hasHistory: true },
-    { id: '3', name: 'EC_決済フロー検証テスト_v1.0.xlsx', progress: 72, updatedAt: '2026/08/28 11:07', updatedBy: '鈴木 健一', hasHistory: true },
-    { id: '4', name: 'EC_管理画面テスト仕様書_v3.1.xlsx', progress: 41, updatedAt: '2026/08/27 16:30', updatedBy: '佐藤 花子', hasHistory: true },
-    { id: '5', name: 'EC_レスポンシブUI確認テスト_詳細版_v2.0.xlsx', progress: 0, updatedAt: '2026/08/25 09:20', updatedBy: '高橋 裕子', hasHistory: false },
-  ],
-  '2': [
-    { id: '1', name: '基幹システム_結合テスト仕様書_v1.0.xlsx', progress: 60, updatedAt: '2026/08/28 10:00', updatedBy: '山田 太郎', hasHistory: true },
-  ],
-  '3': [
-    { id: '1', name: 'モバイルアプリ_UIテスト仕様書_v3.0.xlsx', progress: 100, updatedAt: '2026/08/27 15:30', updatedBy: '鈴木 健一', hasHistory: true },
-  ],
-  '4': [], // ファイル0件
-  '5': [
-    { id: '1', name: 'テストケース未定義_企画メモ_v0.1.xlsx', progress: null, updatedAt: '2026/08/31 10:05', updatedBy: '田中 美咲', hasHistory: false },
-  ], // テストケース0件
-  // 終了済みプロジェクト
-  'a1': [
-    { id: '1', name: 'EC機能テスト仕様書_v2.3.xlsx', progress: 95, updatedAt: '2026/08/30 18:42', updatedBy: '田中 美咲', hasHistory: true },
-    { id: '2', name: 'EC_API結合テスト仕様書_v1.5.xlsx', progress: 88, updatedAt: '2026/08/29 14:15', updatedBy: '山田 太郎', hasHistory: true },
-    { id: '3', name: 'EC_決済フロー検証テスト_v1.0.xlsx', progress: 72, updatedAt: '2026/08/28 11:07', updatedBy: '鈴木 健一', hasHistory: true },
-    { id: '4', name: 'EC_管理画面テスト仕様書_v3.1.xlsx', progress: 41, updatedAt: '2026/08/27 16:30', updatedBy: '佐藤 花子', hasHistory: true },
-    { id: '5', name: 'EC_レスポンシブUI確認テスト_詳細版_v2.0.xlsx', progress: 0, updatedAt: '2026/08/25 09:20', updatedBy: '高橋 裕子', hasHistory: false },
-  ],
-  'a2': [
-    { id: '1', name: '旧管理画面_機能テスト仕様書_v1.0.xlsx', progress: 100, updatedAt: '2026/07/15 12:00', updatedBy: '山田 太郎', hasHistory: true },
-  ],
-  'a3': [
-    { id: '1', name: '決済API_結合テスト仕様書_v2.0.xlsx', progress: 90, updatedAt: '2026/06/20 10:00', updatedBy: '鈴木 健一', hasHistory: true },
-  ],
-};
-
-// プロジェクトごとの統計データ
-const stats_BY_PROJECT: Record<string, { total: number; ok: number; ng: number; pending: number }> = {
-  '1': { total: 248, ok: 162, ng: 19, pending: 67 },
-  '2': { total: 50, ok: 30, ng: 5, pending: 15 },
-  '3': { total: 100, ok: 100, ng: 0, pending: 0 },
-  '4': { total: 0, ok: 0, ng: 0, pending: 0 }, // ファイル0件
-  '5': { total: 0, ok: 0, ng: 0, pending: 0 }, // テストケース0件
-  // 終了済みプロジェクト
-  'a1': { total: 248, ok: 162, ng: 19, pending: 67 },
-  'a2': { total: 120, ok: 115, ng: 5, pending: 0 },
-  'a3': { total: 80, ok: 72, ng: 8, pending: 0 },
-};
 
 const MOCK_MEMBERS = [
   { id: '1', name: '佐藤 花子', email: 'hanako.sato@example.com', role: '管理者' as const, isCurrentUser: true },
@@ -143,11 +142,23 @@ const ALL_USERS = [
 
 export default function DashboardPage() {
   const router = useRouter();
-  const [projects, setProjects] = useState(MOCK_PROJECTS);
-  const [activeProjectId, setActiveProjectId] = useState(MOCK_PROJECTS[0]?.id ?? '');
-  const [activeProjectDetail, setActiveProjectDetail] = useState<ProjectDetail | null>(null);
-  const [isLoadingProject, setIsLoadingProject] = useState(false);
-  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [archivedProjects, setArchivedProjects] = useState<ArchivedProject[]>([]);
+  // 一覧の取得状態。「再読み込み」や404のときは listAttempt を増やして取り直す
+  const [listStatus, setListStatus] = useState<'loading' | 'loaded' | 'failed'>('loading');
+  const [listAttempt, setListAttempt] = useState(0);
+  // 一覧の最初の取得が終わったか。終わるまでは、ヘッダー・タブなどの骨格を出さない
+  // （未ログイン・セッション切れのとき、ログイン画面へ移る前に骨格が一瞬見えないようにするため）
+  const [hasFinishedFirstList, setHasFinishedFirstList] = useState(false);
+  const [activeProjectId, setActiveProjectId] = useState('');
+  // 詳細の取得結果。どのプロジェクトの何回目の取得かを持ち、表示中の対象と一致しない間を「読み込み中」とする
+  // （detail が null は取得失敗）
+  const [detailResult, setDetailResult] = useState<{
+    projectId: string;
+    attempt: number;
+    detail: ProjectDetail | null;
+  } | null>(null);
+  const [detailAttempt, setDetailAttempt] = useState(0);
   const [activeNav, setActiveNav] = useState<'dashboard' | 'settings'>('dashboard');
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
@@ -158,8 +169,7 @@ export default function DashboardPage() {
   const [displayLimit, setDisplayLimit] = useState<5 | 10 | 'all'>(5);
   const [isSortMenuOpen, setIsSortMenuOpen] = useState(false);
   const [draggingId, setDraggingId] = useState<string | null>(null);
-  const [files, setFiles] = useState<FileData[]>(MOCK_FILES_BY_PROJECT['1'] || []);
-  const [stats, setStats] = useState(stats_BY_PROJECT['1']);
+  const [files, setFiles] = useState<FileData[]>([]);
 
   // 終了済みプロジェクト関連
   const [viewingArchivedProject, setViewingArchivedProject] = useState<ArchivedProject | null>(null);
@@ -204,43 +214,120 @@ export default function DashboardPage() {
   // タブ表示用のプロジェクト情報（一覧APIから取得したキャッシュ）
   const activeProjectFromList = projects.find(p => p.id === activeProjectId);
 
-  // プロジェクト切替時に最新のロール・ファイル・統計を取得（仕様書2-4）
+  // 一覧を進行中（タブ。orderの順）と終了済みに分けて反映し、先頭の進行中プロジェクトを選ぶ
+  const applyProjectList = useCallback((data: ProjectListResponse) => {
+    const active = data.projects
+      .filter(p => p.status === 'active')
+      .sort((a, b) => (a.order ?? Infinity) - (b.order ?? Infinity))
+      .map(p => ({ id: p.id, name: p.name, role: ROLE_LABELS[p.myRole] }));
+    const archived = data.projects
+      .filter(p => p.status === 'archived')
+      .map(p => ({ id: p.id, name: p.name }));
+
+    setProjects(active);
+    setArchivedProjects(archived);
+    setViewingArchivedProject(null);
+    setActiveProjectId(active[0]?.id ?? '');
+    setListStatus('loaded');
+    setHasFinishedFirstList(true);
+  }, []);
+
+  // 画面を開いたとき（と再読み込み・404のとき）に、所属プロジェクトの一覧を取得する
   useEffect(() => {
-    const fetchProjectDetail = async () => {
-      setIsLoadingProject(true);
+    // 取得が重なった場合（開発時のStrict Modeでの二重実行など）に、古い結果で上書きしないようにする
+    let ignore = false;
 
-      // API未実装のため仮実装（実際は GET /api/projects/:id を呼ぶ）
-      await new Promise(resolve => setTimeout(resolve, 100));
-
-      const project = MOCK_PROJECTS.find(p => p.id === activeProjectId);
-      if (project) {
-        setActiveProjectDetail({
-          id: project.id,
-          name: project.name,
-          role: project.role,
-        });
-        // プロジェクトごとのファイルと統計を設定
-        setFiles(MOCK_FILES_BY_PROJECT[activeProjectId] || []);
-        setStats(stats_BY_PROJECT[activeProjectId] || { total: 0, ok: 0, ng: 0, pending: 0 });
+    apiGet<ProjectListResponse>('/projects').then((result) => {
+      if (ignore) {
+        return;
       }
+      if (result.ok) {
+        applyProjectList(result.data);
+      } else if (result.status === 401) {
+        router.replace('/login');
+      } else {
+        setListStatus('failed');
+        setHasFinishedFirstList(true);
+      }
+    });
 
-      setFetchError(null);
-      setIsLoadingProject(false);
+    return () => {
+      ignore = true;
     };
+  }, [listAttempt, router, applyProjectList]);
 
-    if (activeProjectId) {
-      fetchProjectDetail();
+  // 詳細を表示する対象。終了済みを閲覧中はそのプロジェクト、それ以外は選択中のタブ
+  const detailTargetId = viewingArchivedProject?.id ?? activeProjectId;
+
+  // プロジェクトから外された場合など。一覧を取り直して先頭の進行中プロジェクトへ移り、一時的に通知する
+  // （仕様書4-8「権限のない画面へアクセスした場合」の扱いに準じる）
+  const handleProjectNotFound = useCallback((messages: string[]) => {
+    setToast({ id: Date.now(), message: messages[0] ?? PROJECT_NOT_FOUND_MESSAGE });
+    // 取り直した一覧の先頭が、以前に表示していたプロジェクトでも、古い取得結果を使わず読み込み直す
+    setDetailResult(null);
+    setListStatus('loading');
+    setListAttempt(attempt => attempt + 1);
+  }, []);
+
+  // プロジェクト切替時に、最新のロールと進捗サマリーを取得する（仕様書2-4）
+  useEffect(() => {
+    if (!detailTargetId) {
+      return;
     }
-  }, [activeProjectId]);
+    let ignore = false;
 
-  // 再読み込み処理
+    apiGet<ProjectDetailResponse>(`/projects/${detailTargetId}`).then((result) => {
+      if (ignore) {
+        return;
+      }
+      if (result.ok) {
+        const { data } = result;
+        setDetailResult({
+          projectId: detailTargetId,
+          attempt: detailAttempt,
+          detail: {
+            id: data.id,
+            name: data.name,
+            role: ROLE_LABELS[data.myRole],
+            progressSummary: data.progressSummary,
+          },
+        });
+        // ファイル一覧は結合5まで仮データ。ファイル0件のプロジェクトでは、一覧の空状態（仕様書5-5）が出るよう空にする
+        setFiles(data.progressSummary.fileCount > 0 ? MOCK_FILES : []);
+      } else if (result.status === 401) {
+        router.replace('/login');
+      } else if (result.status === 404) {
+        handleProjectNotFound(result.messages);
+      } else {
+        setDetailResult({ projectId: detailTargetId, attempt: detailAttempt, detail: null });
+      }
+    });
+
+    return () => {
+      ignore = true;
+    };
+  }, [detailTargetId, detailAttempt, router, handleProjectNotFound]);
+
+  // 表示中の対象についての取得結果だけを使う。対象を切り替えた直後や再読み込み中は「読み込み中」になる
+  const currentDetailResult =
+    detailResult?.projectId === detailTargetId && detailResult.attempt === detailAttempt
+      ? detailResult
+      : null;
+  const isLoadingProject = detailTargetId !== '' && currentDetailResult === null;
+  const fetchError = currentDetailResult !== null && currentDetailResult.detail === null;
+  const activeProjectDetail = currentDetailResult?.detail ?? null;
+
+  // 一覧の取得中・取得失敗も、詳細と同じ「読み込み中」「取得失敗」の表示を使う
+  const showLoading = listStatus === 'loading' || (listStatus === 'loaded' && isLoadingProject);
+  const showFetchError = listStatus === 'failed' || (listStatus === 'loaded' && fetchError);
+
+  // 再読み込み処理（一覧の取得に失敗していれば一覧から、そうでなければ詳細を取り直す）
   const handleRetry = () => {
-    if (activeProjectId) {
-      setFetchError(null);
-      setIsLoadingProject(true);
-      setFiles(MOCK_FILES_BY_PROJECT[activeProjectId] || []);
-      setStats(stats_BY_PROJECT[activeProjectId] || { total: 0, ok: 0, ng: 0, pending: 0 });
-      setIsLoadingProject(false);
+    if (listStatus === 'failed') {
+      setListStatus('loading');
+      setListAttempt(attempt => attempt + 1);
+    } else {
+      setDetailAttempt(attempt => attempt + 1);
     }
   };
 
@@ -248,6 +335,7 @@ export default function DashboardPage() {
   // 詳細取得中は一覧のキャッシュをフォールバックとして使用
   const currentRole = activeProjectDetail?.role || activeProjectFromList?.role || '閲覧者';
   const activeProject = activeProjectDetail || activeProjectFromList;
+  const summary = activeProjectDetail?.progressSummary ?? EMPTY_SUMMARY;
 
   // 終了済みプロジェクト閲覧中かどうか
   const isViewingArchived = viewingArchivedProject !== null;
@@ -276,8 +364,6 @@ export default function DashboardPage() {
   // 終了済みプロジェクトを選択
   const handleSelectArchivedProject = (project: ArchivedProject) => {
     setViewingArchivedProject(project);
-    setFiles(MOCK_FILES_BY_PROJECT[project.id] || []);
-    setStats(stats_BY_PROJECT[project.id] || { total: 0, ok: 0, ng: 0, pending: 0 });
     setIsArchivedMenuOpen(false);
     setActiveNav('dashboard');
   };
@@ -370,22 +456,21 @@ export default function DashboardPage() {
     }
   }
 
-  // 空状態の判定
-  const hasTestCases = stats.total > 0;
+  // 空状態の判定（仕様書5-5、api-design.md 2-3）
+  // - ファイル0件：進捗率は「0%」、プログレスバーは0%の状態
+  // - ファイルはあるが対象テスト0件（progressRate が null）：進捗率は「—」、プログレスバーは空の状態
+  const hasTestCases = summary.targetCount > 0;
+  const isProgressUndefined = summary.fileCount > 0 && summary.progressRate === null;
 
-  // 進捗率の計算（テストケース0件の場合はNaN回避）
-  const progressPercent = hasTestCases
-    ? Math.round((stats.ok + stats.ng) / stats.total * 100)
-    : 0;
-
-  // パーセント表示（テストケース0件の場合は「—」）
-  const progressDisplay = hasTestCases ? String(progressPercent) : '—';
-  const showPercentSign = hasTestCases;
+  // 進捗率はAPIの値（小数第1位まで）をそのまま表示する（api-design.md 2-3：集計はバックエンドで行う）
+  const progressPercent = summary.progressRate ?? 0;
+  const progressDisplay = isProgressUndefined ? '—' : String(progressPercent);
+  const showPercentSign = !isProgressUndefined;
 
   // ドーナツのパーセント計算
-  const okPercent = hasTestCases ? Math.round(stats.ok / stats.total * 100) : 0;
-  const ngPercent = hasTestCases ? Math.round(stats.ng / stats.total * 100) : 0;
-  const pendingPercent = hasTestCases ? Math.round(stats.pending / stats.total * 100) : 0;
+  const okPercent = hasTestCases ? Math.round(summary.okCount / summary.targetCount * 100) : 0;
+  const ngPercent = hasTestCases ? Math.round(summary.ngCount / summary.targetCount * 100) : 0;
+  const pendingPercent = hasTestCases ? Math.round(summary.notRunCount / summary.targetCount * 100) : 0;
 
   // タブのドラッグ&ドロップ
   const handleDragStart = (e: React.DragEvent, projectId: string) => {
@@ -557,6 +642,18 @@ export default function DashboardPage() {
     : currentRole === 'テスター' ? 'テスターダッシュボード'
     : '閲覧者ダッシュボード';
 
+  // 一覧の最初の取得中は、読み込み中の表示だけにする（401ならこのままログイン画面へ移る）
+  if (!hasFinishedFirstList) {
+    return (
+      <div className={styles.wrap}>
+        <div className={`${styles.card} ${styles.loadingCard}`}>
+          <div className={styles.spinner}></div>
+          <div className={styles.loadingText}>読み込み中…</div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={styles.wrap}>
       {/* ===== ヘッダー ===== */}
@@ -617,7 +714,7 @@ export default function DashboardPage() {
           className={`${styles.tabFilter} ${isViewingArchived ? styles.tabFilterSelected : ''}`}
           onClick={handleToggleArchivedMenu}
         >
-          終了済み {MOCK_ARCHIVED_PROJECTS.length} 件 ▾
+          終了済み {archivedProjects.length} 件 ▾
         </div>
         {isArchivedMenuOpen && (
           <div
@@ -625,7 +722,7 @@ export default function DashboardPage() {
             className={styles.archivedMenu}
             style={{ top: archivedMenuPosition.top, right: archivedMenuPosition.right }}
           >
-            {MOCK_ARCHIVED_PROJECTS.map(project => (
+            {archivedProjects.map(project => (
               <div
                 key={project.id}
                 className={styles.archivedMenuItem}
@@ -639,7 +736,7 @@ export default function DashboardPage() {
       </div>
 
       {/* ===== 進行中プロジェクト0件 ===== */}
-      {projects.length === 0 && (
+      {listStatus === 'loaded' && projects.length === 0 && !isViewingArchived && (
         <div className={`${styles.card} ${styles.noProjectCard}`}>
           <div className={styles.noProjectIcon}>
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -658,7 +755,7 @@ export default function DashboardPage() {
       )}
 
       {/* ===== ローディング状態 ===== */}
-      {projects.length > 0 && !isViewingArchived && isLoadingProject && (
+      {showLoading && (
         <div className={`${styles.card} ${styles.loadingCard}`}>
           <div className={styles.spinner}></div>
           <div className={styles.loadingText}>読み込み中…</div>
@@ -666,11 +763,11 @@ export default function DashboardPage() {
       )}
 
       {/* ===== エラー状態 ===== */}
-      {projects.length > 0 && !isViewingArchived && fetchError && !isLoadingProject && (
+      {showFetchError && (
         <div className={`${styles.card} ${styles.errorCard}`}>
           <div className={styles.errorIcon}>!</div>
           <div className={styles.errorTitle}>データを取得できませんでした</div>
-          <div className={styles.errorDesc}>通信状況をご確認のうえ、もう一度お試しください。</div>
+          <div className={styles.errorDesc}>{NETWORK_ERROR_MESSAGE}</div>
           <button className={styles.btnRetry} onClick={handleRetry}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="23 4 23 10 17 10"></polyline>
@@ -682,7 +779,7 @@ export default function DashboardPage() {
       )}
 
       {/* ===== 管理者ナビゲーション（管理者のみ） ===== */}
-      {projects.length > 0 && !isLoadingProject && !fetchError && canManage && (
+      {projects.length > 0 && !showLoading && !showFetchError && canManage && (
         <nav className={styles.adminNav}>
           <div
             className={`${styles.adminNavItem} ${activeNav === 'dashboard' ? styles.adminNavItemActive : ''}`}
@@ -700,7 +797,7 @@ export default function DashboardPage() {
       )}
 
       {/* ===== ダッシュボードビュー ===== */}
-      {(projects.length > 0 || isViewingArchived) && !isLoadingProject && !fetchError && activeNav === 'dashboard' && (
+      {(projects.length > 0 || isViewingArchived) && !showLoading && !showFetchError && activeNav === 'dashboard' && (
         <>
           <div className={styles.pageHead}>
             {isViewingArchived ? (
@@ -726,11 +823,11 @@ export default function DashboardPage() {
               <span className={styles.progressValue}>{progressDisplay}</span>
               {showPercentSign && <span className={styles.progressPercent}>%</span>}
             </div>
-            <div className={`${styles.progressTrack} ${!hasTestCases ? styles.progressTrackEmpty : ''}`}>
+            <div className={`${styles.progressTrack} ${isProgressUndefined ? styles.progressTrackEmpty : ''}`}>
               <div className={styles.progressFill} style={{ width: `${progressPercent}%` }}></div>
             </div>
             <div className={styles.progressCaption}>
-              {stats.ok + stats.ng} / {stats.total} 件 実施済み
+              {summary.completedCount} / {summary.targetCount} 件 実施済み
             </div>
           </div>
 
@@ -751,7 +848,7 @@ export default function DashboardPage() {
                   } : undefined}
                 >
                   <div className={styles.donutCenter}>
-                    <b>{stats.total}</b>
+                    <b>{summary.targetCount}</b>
                     <span>件</span>
                   </div>
                 </div>
@@ -762,7 +859,7 @@ export default function DashboardPage() {
                   OK
                 </div>
                 <div className={styles.legendFigures}>
-                  <span className={styles.legendNum}>{stats.ok}件</span>
+                  <span className={styles.legendNum}>{summary.okCount}件</span>
                   <span className={styles.legendPct}>{okPercent}%</span>
                 </div>
               </div>
@@ -772,7 +869,7 @@ export default function DashboardPage() {
                   NG
                 </div>
                 <div className={styles.legendFigures}>
-                  <span className={styles.legendNum}>{stats.ng}件</span>
+                  <span className={styles.legendNum}>{summary.ngCount}件</span>
                   <span className={styles.legendPct}>{ngPercent}%</span>
                 </div>
               </div>
@@ -782,7 +879,7 @@ export default function DashboardPage() {
                   未実施
                 </div>
                 <div className={styles.legendFigures}>
-                  <span className={styles.legendNum}>{stats.pending}件</span>
+                  <span className={styles.legendNum}>{summary.notRunCount}件</span>
                   <span className={styles.legendPct}>{pendingPercent}%</span>
                 </div>
               </div>
@@ -967,7 +1064,7 @@ export default function DashboardPage() {
       )}
 
       {/* ===== プロジェクト設定ビュー（管理者のみ） ===== */}
-      {projects.length > 0 && !isLoadingProject && !fetchError && activeNav === 'settings' && canManage && (
+      {projects.length > 0 && !showLoading && !showFetchError && activeNav === 'settings' && canManage && (
         <>
           <div className={styles.pageHead}>
             <h1 className={styles.pageTitle}>{activeProject?.name}</h1>
