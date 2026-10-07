@@ -8,6 +8,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { CreateProjectDto } from './dto/create-project.dto.js';
 import { UpdateProjectDto } from './dto/update-project.dto.js';
 import { UpdateOrderDto } from './dto/update-order.dto.js';
+import { nextDisplayOrder } from './display-order.js';
 import type {
   ProjectListItem,
   ProjectDetail,
@@ -46,17 +47,8 @@ export class ProjectsService {
     userId: string,
     dto: CreateProjectDto,
   ): Promise<ProjectListItem> {
-    // 既存の進行中プロジェクトのorder最大値を取得
-    const maxOrderResult = await this.prisma.projectMember.aggregate({
-      where: {
-        userId,
-        project: { status: 'active' },
-        displayOrder: { not: null },
-      },
-      _max: { displayOrder: true },
-    });
-
-    const newOrder = (maxOrderResult._max.displayOrder ?? -1) + 1;
+    // 既存の進行中プロジェクトの末尾に追加する（api-design.md 2-2節）
+    const newOrder = await nextDisplayOrder(this.prisma, userId);
 
     // プロジェクトとメンバーシップを同時作成
     const project = await this.prisma.project.create({
