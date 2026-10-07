@@ -902,8 +902,14 @@
   cursor: pointer;
 }
 
-.btnDanger:hover {
+.btnDanger:hover:not(:disabled) {
   filter: brightness(0.95);
+}
+
+/* 通信中など押せない状態。btnMini:disabled と同じ見せ方にそろえる */
+.btnDanger:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
 }
 
 /* ===== メンバーテーブル ===== */

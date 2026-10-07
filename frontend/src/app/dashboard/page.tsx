@@ -216,6 +216,7 @@ export default function DashboardPage() {
   const [isAddMemberModalOpen, setIsAddMemberModalOpen] = useState(false);
   const [memberSearchQuery, setMemberSearchQuery] = useState('');
   const [isTerminateModalOpen, setIsTerminateModalOpen] = useState(false);
+  const [isArchivingProject, setIsArchivingProject] = useState(false);
 
   // 行メニュー（登録取消用）
   const [rowMenuFile, setRowMenuFile] = useState<FileData | null>(null);
@@ -714,6 +715,66 @@ export default function DashboardPage() {
       });
     }
     setIsCreatingProject(false);
+  };
+
+  // 終了したプロジェクトを、進行中のタブから終了済みへ移し、閲覧専用ダッシュボードとして開いたままにする
+  // （操作の結果がその場で見え、データが消えていないことも伝わるため）
+  const showAsArchived = (archived: ArchivedProject) => {
+    setProjects(prev => prev.filter(p => p.id !== archived.id));
+    // 一覧APIでは終了済みは作成日の新しい順だが、作成日を持っていないため、直近に終了したものとして先頭に置く
+    setArchivedProjects(prev => [archived, ...prev.filter(p => p.id !== archived.id)]);
+    setViewingArchivedProject(archived);
+    // 終了済みでは管理者ナビ・プロジェクト設定を出さない（仕様書2-6）
+    setActiveNav('dashboard');
+  };
+
+  // プロジェクト終了（仕様書2-6・4-7、api-design.md 2-5）
+  const handleArchiveProject = async () => {
+    if (isArchivingProject || !activeProject) {
+      return;
+    }
+    const target = { id: activeProject.id, name: activeProject.name };
+
+    setIsArchivingProject(true);
+    const result = await apiPost<ArchivedProject>(`/projects/${target.id}/archive`);
+
+    if (result.ok) {
+      showAsArchived({ id: result.data.id, name: result.data.name });
+      setToast(null);
+      setIsTerminateModalOpen(false);
+      setIsArchivingProject(false);
+      return;
+    }
+    if (result.status === 401) {
+      // 遷移が終わるまで終了ボタンは無効のままにする
+      router.replace('/login');
+      return;
+    }
+
+    const message = result.messages[0];
+    if (result.status === 400) {
+      // 別の管理者がすでに終了していた場合。サーバーでは終了済みなので、成功時と同じ表示に合わせる
+      showAsArchived(target);
+      setToast({ id: Date.now(), message: message ?? 'このプロジェクトはすでに終了しています。' });
+      setIsTerminateModalOpen(false);
+    } else if (result.status === 404) {
+      // プロジェクトから外された場合など（一覧を取り直して先頭へ移る。詳細取得時の404と同じ扱い）
+      setIsTerminateModalOpen(false);
+      handleProjectNotFound(result.messages);
+    } else if (result.status === 403) {
+      // 管理者でなくなっていた場合。詳細を取り直して最新のロールに合わせる
+      // （管理者以外になればナビはダッシュボードに戻る。仕様書2-4）
+      setToast({ id: Date.now(), message: message ?? 'この操作を行う権限がありません。' });
+      setIsTerminateModalOpen(false);
+      setDetailAttempt(attempt => attempt + 1);
+    } else {
+      // モーダルは閉じず、そのまま終了し直せるようにする（仕様書4-8「一部操作の失敗は短いエラー通知」）
+      setToast({
+        id: Date.now(),
+        message: result.status === 500 && message ? message : NETWORK_ERROR_MESSAGE,
+      });
+    }
+    setIsArchivingProject(false);
   };
 
   const uploadErrorCount = uploadFiles.filter(f => f.status === 'error').length;
@@ -1557,7 +1618,12 @@ export default function DashboardPage() {
       {isTerminateModalOpen && (
         <div
           className={styles.modalOverlay}
-          onClick={() => setIsTerminateModalOpen(false)}
+          onClick={() => {
+            // 通信中は閉じない。閉じた後に終了が完了して、画面が切り替わるのを避けるため
+            if (!isArchivingProject) {
+              setIsTerminateModalOpen(false);
+            }
+          }}
         >
           <div className={styles.modalBox} onClick={(e) => e.stopPropagation()}>
             <div className={styles.modalTitle}>プロジェクトを終了しますか？</div>
@@ -1573,22 +1639,16 @@ export default function DashboardPage() {
               <button
                 className={styles.btnMini}
                 onClick={() => setIsTerminateModalOpen(false)}
+                disabled={isArchivingProject}
               >
                 キャンセル
               </button>
               <button
                 className={styles.btnDanger}
-                onClick={() => {
-                  setProjects(prev => prev.filter(p => p.id !== activeProjectId));
-                  if (projects.length > 1) {
-                    const remaining = projects.filter(p => p.id !== activeProjectId);
-                    setActiveProjectId(remaining[0]?.id || '');
-                  }
-                  setIsTerminateModalOpen(false);
-                  setActiveNav('dashboard');
-                }}
+                onClick={handleArchiveProject}
+                disabled={isArchivingProject}
               >
-                プロジェクトを終了
+                {isArchivingProject ? '終了中...' : 'プロジェクトを終了'}
               </button>
             </div>
           </div>
