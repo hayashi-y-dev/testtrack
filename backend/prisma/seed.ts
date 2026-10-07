@@ -95,34 +95,38 @@ async function main() {
   // =========================================================================
   // プロジェクトメンバー
   // =========================================================================
+  // displayOrder（タブの表示順）は、進行中プロジェクトのメンバーには必ず入れ、終了済みはNULLにする
+  // （db-schema.md 2-3節）。値はユーザーごとに0から振り、順番は作成日の新しい順
+  // （社内ポータル改修→会員基盤刷新→ECサイトリニューアル）とする。
+  // 全件NULLだったころの一覧APIの並び（NULLは作成日の新しい順）と同じにして、見た目を変えないため
   // ECサイトリニューアル: 山田(admin), 佐藤(tester), 伊藤(viewer)
   await prisma.projectMember.createMany({
     data: [
-      { userId: yamada.id, projectId: ecProject.id, role: ProjectRole.admin },
-      { userId: sato.id, projectId: ecProject.id, role: ProjectRole.tester },
-      { userId: ito.id, projectId: ecProject.id, role: ProjectRole.viewer },
+      { userId: yamada.id, projectId: ecProject.id, role: ProjectRole.admin, displayOrder: 2 },
+      { userId: sato.id, projectId: ecProject.id, role: ProjectRole.tester, displayOrder: 2 },
+      { userId: ito.id, projectId: ecProject.id, role: ProjectRole.viewer, displayOrder: 0 },
     ],
   });
 
   // 会員基盤刷新: 佐藤(admin), 田中(tester), 山田(viewer)
   await prisma.projectMember.createMany({
     data: [
-      { userId: sato.id, projectId: memberProject.id, role: ProjectRole.admin },
-      { userId: tanaka.id, projectId: memberProject.id, role: ProjectRole.tester },
-      { userId: yamada.id, projectId: memberProject.id, role: ProjectRole.viewer },
+      { userId: sato.id, projectId: memberProject.id, role: ProjectRole.admin, displayOrder: 1 },
+      { userId: tanaka.id, projectId: memberProject.id, role: ProjectRole.tester, displayOrder: 1 },
+      { userId: yamada.id, projectId: memberProject.id, role: ProjectRole.viewer, displayOrder: 1 },
     ],
   });
 
   // 社内ポータル改修: 佐藤(admin), 田中(admin), 山田(tester)
   await prisma.projectMember.createMany({
     data: [
-      { userId: sato.id, projectId: portalProject.id, role: ProjectRole.admin },
-      { userId: tanaka.id, projectId: portalProject.id, role: ProjectRole.admin },
-      { userId: yamada.id, projectId: portalProject.id, role: ProjectRole.tester },
+      { userId: sato.id, projectId: portalProject.id, role: ProjectRole.admin, displayOrder: 0 },
+      { userId: tanaka.id, projectId: portalProject.id, role: ProjectRole.admin, displayOrder: 0 },
+      { userId: yamada.id, projectId: portalProject.id, role: ProjectRole.tester, displayOrder: 0 },
     ],
   });
 
-  // 旧基幹システム保守: 中村(admin), 山田(tester)
+  // 旧基幹システム保守: 中村(admin), 山田(tester)。終了済みのためdisplayOrderはNULL（指定しない）
   await prisma.projectMember.createMany({
     data: [
       { userId: nakamura.id, projectId: legacyProject.id, role: ProjectRole.admin },

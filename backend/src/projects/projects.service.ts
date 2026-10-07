@@ -173,11 +173,19 @@ export class ProjectsService {
       );
     }
 
-    // ステータスを更新
-    const updatedProject = await this.prisma.project.update({
-      where: { id: projectId },
-      data: { status: 'archived' },
-    });
+    // ステータスを更新し、全メンバーの並び順をNULLにする。
+    // 終了済みはタブに表示されず並び順の概念がないため、値を持たない（db-schema.md 2-3節）。
+    // 片方だけ反映された状態を残さないよう、1つのトランザクションで行う
+    const [updatedProject] = await this.prisma.$transaction([
+      this.prisma.project.update({
+        where: { id: projectId },
+        data: { status: 'archived' },
+      }),
+      this.prisma.projectMember.updateMany({
+        where: { projectId },
+        data: { displayOrder: null },
+      }),
+    ]);
 
     return {
       id: updatedProject.id,

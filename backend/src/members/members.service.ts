@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import type { ProjectRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { nextDisplayOrder } from '../projects/display-order.js';
 import { AddMemberDto } from './dto/add-member.dto.js';
 import { ChangeRoleDto } from './dto/change-role.dto.js';
 import type { MemberListItem, SearchResultItem } from './members.types.js';
@@ -133,12 +134,14 @@ export class MembersService {
       );
     }
 
-    // メンバーを追加（ロールは常にtester）
+    // メンバーを追加（ロールは常にtester）。
+    // 追加された人のタブでは、その人の進行中プロジェクトの末尾に出す（作成時の2-2節と同じ扱い）
     const newMember = await this.prisma.projectMember.create({
       data: {
         userId: dto.userId,
         projectId,
         role: 'tester',
+        displayOrder: await nextDisplayOrder(this.prisma, dto.userId),
       },
     });
 
