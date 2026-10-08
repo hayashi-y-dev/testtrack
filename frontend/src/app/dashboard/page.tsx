@@ -24,6 +24,13 @@ const ROLE_LABELS: Record<ApiRole, Role> = {
   viewer: '閲覧者',
 };
 
+// GET /auth/me のレスポンス（api-design.md 1-6。ログインの成功時と同じ形）
+type CurrentUser = {
+  id: string;
+  email: string;
+  displayName: string;
+};
+
 // GET /projects のレスポンス（api-design.md 2-1）
 type ProjectListResponse = {
   projects: {
@@ -192,6 +199,8 @@ export default function DashboardPage() {
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   // id は、同じ文言を続けて通知したときにもトーストを作り直して表示時間をやり直すために使う
   const [toast, setToast] = useState<{ id: number; message: string } | null>(null);
+  // ヘッダーに表示するログイン中のユーザー。取得できるまで（取得失敗時も）は null で、名前を空にする
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterSegment, setFilterSegment] = useState<'all' | 'incomplete' | 'complete'>('all');
   const [displayLimit, setDisplayLimit] = useState<5 | 10 | 'all'>(5);
@@ -295,6 +304,29 @@ export default function DashboardPage() {
       ignore = true;
     };
   }, [listAttempt, router, applyProjectList]);
+
+  // 画面を開いたときに、ヘッダーに出すログイン中のユーザーを取得する（api-design.md 1-6）。
+  // 一覧の取得とは待ち合わせず、並行して取る。互いの結果を使わず、失敗したときの扱いも違う
+  // （一覧は取得失敗の表示を出すが、ユーザー名は空のままにするだけ）ため
+  useEffect(() => {
+    let ignore = false;
+
+    apiGet<CurrentUser>('/auth/me').then((result) => {
+      if (ignore) {
+        return;
+      }
+      if (result.ok) {
+        setCurrentUser(result.data);
+      } else if (result.status === 401) {
+        router.replace('/login');
+      }
+      // そのほかの失敗では何もしない（名前は空のまま。ほかの表示は止めない）
+    });
+
+    return () => {
+      ignore = true;
+    };
+  }, [router]);
 
   // 詳細を表示する対象。終了済みを閲覧中はそのプロジェクト、それ以外は選択中のタブ
   const detailTargetId = viewingArchivedProject?.id ?? activeProjectId;
@@ -908,7 +940,9 @@ export default function DashboardPage() {
             className={`${styles.userMenu} ${isUserMenuOpen ? styles.userMenuOpen : ''}`}
             onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
           >
-            <span className={styles.userMenuName}>佐藤 花子</span>
+            <span className={styles.userMenuName} title={currentUser?.displayName}>
+              {currentUser?.displayName}
+            </span>
             <svg className={styles.userMenuChevron} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="6 9 12 15 18 9"></polyline>
             </svg>

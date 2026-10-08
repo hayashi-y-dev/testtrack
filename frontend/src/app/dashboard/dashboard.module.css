@@ -119,6 +119,13 @@
   font-size: 13px;
   color: var(--text);
   font-weight: 600;
+  /* 長い名前はタブと同じく1行で省略する。全文はtitle（ホバー）で確認できる */
+  max-width: 200px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* 名前を取得できるまで（空のとき）も、1行分の高さを保ってヘッダーの高さを変えない */
+  min-height: 1lh;
 }
 
 .userMenuChevron {
