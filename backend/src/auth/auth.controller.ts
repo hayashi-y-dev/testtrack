@@ -1,5 +1,6 @@
 import {
   Controller,
+  Get,
   Post,
   Body,
   Req,
@@ -65,6 +66,15 @@ export class AuthController {
     // セッションCookieを失効させる
     res.clearCookie('connect.sid');
     return res.json({ message: 'ログアウトしました。' });
+  }
+
+  @Get('me')
+  @UseGuards(AuthGuard)
+  async me(
+    @Req() req: Request,
+  ): Promise<{ id: string; email: string; displayName: string }> {
+    const userId = req.session.userId!;
+    return this.authService.getCurrentUser(userId);
   }
 
   @Post('password-reset-request')

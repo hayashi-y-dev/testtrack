@@ -62,6 +62,24 @@ export class AuthService {
     };
   }
 
+  async getCurrentUser(
+    userId: string,
+  ): Promise<{ id: string; email: string; displayName: string }> {
+    // 返すのは、ログイン（1-1）の成功時と同じ3項目（api-design.md 1-6）
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true, displayName: true },
+    });
+
+    // セッションは有効でも、ユーザーがいない場合（DBを直接操作して削除した場合など）は、
+    // 未ログインと同じ扱いにする。MVPにユーザー削除の機能はないため、通常は起きない
+    if (!user) {
+      throw new UnauthorizedException('ログインが必要です。');
+    }
+
+    return user;
+  }
+
   async requestPasswordReset(
     dto: PasswordResetRequestDto,
   ): Promise<{ message: string }> {
