@@ -25,8 +25,12 @@ export function apiPost<T>(path: string, body?: unknown): Promise<ApiResult<T>> 
   return request<T>('POST', path, body);
 }
 
+export function apiPatch<T>(path: string, body?: unknown): Promise<ApiResult<T>> {
+  return request<T>('PATCH', path, body);
+}
+
 async function request<T>(
-  method: 'GET' | 'POST',
+  method: 'GET' | 'POST' | 'PATCH',
   path: string,
   body?: unknown,
 ): Promise<ApiResult<T>> {

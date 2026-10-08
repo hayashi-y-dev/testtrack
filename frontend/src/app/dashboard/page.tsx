@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { apiGet, apiPost, NETWORK_ERROR_MESSAGE } from '@/lib/api';
+import { apiGet, apiPatch, apiPost, NETWORK_ERROR_MESSAGE } from '@/lib/api';
 import Toast from '@/components/Toast';
 import styles from './dashboard.module.css';
 
@@ -92,6 +92,11 @@ const EMPTY_SUMMARY: ProgressSummary = {
 const PROJECT_NOT_FOUND_MESSAGE = '指定されたプロジェクトが見つかりません。';
 
 const PROJECT_NAME_MAX_LENGTH = 50;
+
+// 2つの並び（プロジェクトIDの配列）が同じ順序かどうか
+function isSameOrder(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((id, index) => id === b[index]);
+}
 
 /**
  * プロジェクト名の入力チェック（仕様書2-2・9-1。APIの CreateProjectDto と同じ規則）
@@ -192,6 +197,15 @@ export default function DashboardPage() {
   const [displayLimit, setDisplayLimit] = useState<5 | 10 | 'all'>(5);
   const [isSortMenuOpen, setIsSortMenuOpen] = useState(false);
   const [draggingId, setDraggingId] = useState<string | null>(null);
+  // タブ並び順の保存（api-design.md 2-6）で使う値。画面の描画には使わないため、stateではなくrefで持つ
+  // - dragStartOrderRef: ドラッグを始めた時点の並び（変わっていなければ保存しないための比較用）
+  // - savedOrderRef: サーバーに保存済みと分かっている並び（保存に失敗したときの戻し先）
+  // - pendingOrderRef: 保存待ちの最新の並び（通信中に並び替えられた分を、終わってから送る）
+  // - isSavingOrderRef: 保存の通信中かどうか（通信中に呼ばれたら、送らずに保存待ちへ回すため）
+  const dragStartOrderRef = useRef<string[] | null>(null);
+  const savedOrderRef = useRef<string[]>([]);
+  const pendingOrderRef = useRef<string[] | null>(null);
+  const isSavingOrderRef = useRef(false);
   const [files, setFiles] = useState<FileData[]>([]);
 
   // 終了済みプロジェクト関連
@@ -250,6 +264,7 @@ export default function DashboardPage() {
       .map(p => ({ id: p.id, name: p.name }));
 
     setProjects(active);
+    savedOrderRef.current = active.map(p => p.id);
     setArchivedProjects(archived);
     setViewingArchivedProject(null);
     setActiveProjectId(active[0]?.id ?? '');
@@ -500,11 +515,82 @@ export default function DashboardPage() {
   // タブのドラッグ&ドロップ
   const handleDragStart = (e: React.DragEvent, projectId: string) => {
     setDraggingId(projectId);
+    dragStartOrderRef.current = projects.map(p => p.id);
     e.dataTransfer.effectAllowed = 'move';
   };
 
+  // 並び順を保存する（api-design.md 2-6。進行中プロジェクト全件の順序をまとめて送る）。
+  // 保存は1件ずつ順番に送り、通信中に並び替えられたら、終わってから最新の並びだけを送る。
+  // 同時に複数送ると、サーバーで書き込まれる順番が入れ替わり、古い並びが最後に残ることがあるため。
+  // useCallbackにしているのは、ほかの関数から呼ぶ関数を、Reactのlint（react-hooks/purity）が
+  // 描画中に呼ばれうるものとして扱い、中の Date.now() を誤って指摘するため
+  const saveProjectOrder = useCallback(async (order: string[]) => {
+    pendingOrderRef.current = order;
+    if (isSavingOrderRef.current) {
+      return;
+    }
+    isSavingOrderRef.current = true;
+
+    // 保存待ちの並びを1件送り、成功したら、その間に増えた保存待ちを続けて送る
+    const sendPendingOrder = async (): Promise<void> => {
+      const toSave = pendingOrderRef.current;
+      pendingOrderRef.current = null;
+      if (toSave === null) {
+        return;
+      }
+      // 通信中に元の並びへ戻された場合など、保存済みと同じなら送らない
+      if (isSameOrder(toSave, savedOrderRef.current)) {
+        return sendPendingOrder();
+      }
+
+      const result = await apiPatch('/projects/order', {
+        orders: toSave.map((projectId, index) => ({ projectId, order: index })),
+      });
+      if (result.ok) {
+        savedOrderRef.current = toSave;
+        return sendPendingOrder();
+      }
+
+      // 失敗したら、保存待ちの並びも送らない（失敗した並びを元にした並びのため）
+      pendingOrderRef.current = null;
+      if (result.status === 401) {
+        router.replace('/login');
+      } else if (result.status === 400) {
+        // 参加していない（終了した・外された）プロジェクトが含まれていた場合など。
+        // 一覧を取り直してサーバーの実際の並びに合わせる（扱いはプロジェクトが見つからない場合と同じ）
+        handleProjectNotFound(result.messages);
+      } else {
+        // 保存前の並びに戻す。保存済みの並びにないタブ（通信中に作成したものなど）は、今の順のまま末尾に置く
+        const savedOrder = savedOrderRef.current;
+        const rank = (id: string) => {
+          const index = savedOrder.indexOf(id);
+          return index === -1 ? Infinity : index;
+        };
+        setProjects(prev => [...prev].sort((a, b) => rank(a.id) - rank(b.id)));
+        setToast({
+          id: Date.now(),
+          message: result.status === 500 && result.messages.length > 0
+            ? result.messages[0]
+            : NETWORK_ERROR_MESSAGE,
+        });
+      }
+    };
+
+    await sendPendingOrder();
+    isSavingOrderRef.current = false;
+  }, [router, handleProjectNotFound]);
+
+  // 並びはドラッグ中（handleDragOver）にその場で入れ替わっているので、離した時点の並びを保存する。
+  // タブの外で離した場合も、見えている並びを正として保存する（画面と保存内容を食い違わせないため）
   const handleDragEnd = () => {
     setDraggingId(null);
+    const before = dragStartOrderRef.current;
+    dragStartOrderRef.current = null;
+    const after = projects.map(p => p.id);
+    if (before === null || isSameOrder(before, after)) {
+      return;
+    }
+    void saveProjectOrder(after);
   };
 
   const handleDragOver = (e: React.DragEvent, targetId: string) => {
@@ -1629,8 +1715,6 @@ export default function DashboardPage() {
             <div className={styles.modalTitle}>プロジェクトを終了しますか？</div>
             <p className={styles.modalDesc}>
               終了後もデータは削除されず、閲覧専用になります。
-              <br />
-              この操作は取り消せません。
             </p>
             <div className={styles.modalTarget}>
               対象プロジェクト: <b>{activeProject?.name}</b>
