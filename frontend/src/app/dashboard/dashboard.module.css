@@ -762,6 +762,17 @@
   border-bottom: 1px solid var(--border-soft);
 }
 
+/* 2段目（エラー文など）を持てる行。1段目のラベルと値は、これまでどおり上下中央にそろう */
+.settingsRowWrap {
+  flex-wrap: wrap;
+}
+
+/* 行の2段目に出すエラー文。ラベルの幅（.settingsLabel の160px）だけ左を空けて、値の列にそろえる */
+.settingsRowError {
+  flex-basis: 100%;
+  padding-left: 160px;
+}
+
 .settingsRowLast {
   border-bottom: none;
   padding-bottom: 2px;
@@ -893,8 +904,14 @@
   cursor: pointer;
 }
 
-.btnSecondary:hover {
+.btnSecondary:hover:not(:disabled) {
   background: var(--accent-glow);
+}
+
+/* 押せない状態。btnMini:disabled と同じ見せ方にそろえる */
+.btnSecondary:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
 }
 
 .btnDanger {
@@ -995,6 +1012,11 @@
   border: 1px solid var(--border);
   border-radius: 7px;
   background: var(--surface-2);
+}
+
+.roleSelect:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
 }
 
 .memberActions {
@@ -1633,4 +1655,9 @@
 .btnRetry:hover {
   background: var(--surface);
   border-color: var(--text-faint);
+}
+
+/* カードの中の1セクションで「読み込み中」「取得失敗」を出すときに、余白を詰める（メンバー一覧など） */
+.sectionState {
+  padding: 32px 20px;
 }

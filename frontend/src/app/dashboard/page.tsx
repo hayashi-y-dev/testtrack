@@ -72,13 +72,28 @@ type Project = {
   role: Role;
 };
 
-// プロジェクト詳細（切替時に取得する最新のロールと進捗サマリー）
+// プロジェクト詳細（切替時に取得する最新のロールと進捗サマリー。状態・作成日はプロジェクト設定の基本情報に使う）
 type ProjectDetail = {
   id: string;
   name: string;
+  status: 'active' | 'archived';
+  createdAt: string;
   role: Role;
   progressSummary: ProgressSummary;
 };
+
+// GET /projects/:id/members のレスポンスの1件（api-design.md 3-1）
+type Member = {
+  id: string;
+  userId: string;
+  displayName: string;
+  email: string;
+  role: ApiRole;
+  isMe: boolean;
+};
+
+// PATCH /projects/:id のレスポンス（api-design.md 2-4。作成と同じ形）
+type UpdateProjectResponse = ProjectListResponse['projects'][number];
 
 type ArchivedProject = {
   id: string;
@@ -97,6 +112,16 @@ const EMPTY_SUMMARY: ProgressSummary = {
 };
 
 const PROJECT_NOT_FOUND_MESSAGE = '指定されたプロジェクトが見つかりません。';
+// 権限のない画面を開こうとした場合の通知（仕様書4-8）
+const NO_PERMISSION_PAGE_MESSAGE = 'このページを表示する権限がありません。';
+
+// APIの日時（UTC）を、日本時間の「2026年3月15日」の形にする
+const DATE_FORMAT_JST = new Intl.DateTimeFormat('ja-JP', {
+  timeZone: 'Asia/Tokyo',
+  year: 'numeric',
+  month: 'long',
+  day: 'numeric',
+});
 
 const PROJECT_NAME_MAX_LENGTH = 50;
 
@@ -151,14 +176,6 @@ const MOCK_FILES: FileData[] = [
   { id: '3', name: 'EC_決済フロー検証テスト_v1.0.xlsx', progress: 72, updatedAt: '2026/08/28 11:07', updatedBy: '鈴木 健一', hasHistory: true },
   { id: '4', name: 'EC_管理画面テスト仕様書_v3.1.xlsx', progress: 41, updatedAt: '2026/08/27 16:30', updatedBy: '佐藤 花子', hasHistory: true },
   { id: '5', name: 'EC_レスポンシブUI確認テスト_詳細版_v2.0.xlsx', progress: 0, updatedAt: '2026/08/25 09:20', updatedBy: '高橋 裕子', hasHistory: false },
-];
-
-const MOCK_MEMBERS = [
-  { id: '1', name: '佐藤 花子', email: 'hanako.sato@example.com', role: '管理者' as const, isCurrentUser: true },
-  { id: '2', name: '田中 美咲', email: 'misaki.tanaka@example.com', role: 'テスター' as const, isCurrentUser: false },
-  { id: '3', name: '山田 太郎', email: 'taro.yamada@example.com', role: 'テスター' as const, isCurrentUser: false },
-  { id: '4', name: '鈴木 健一', email: 'kenichi.suzuki@example.com', role: 'テスター' as const, isCurrentUser: false },
-  { id: '5', name: '高橋 裕子', email: 'yuko.takahashi@example.com', role: '閲覧者' as const, isCurrentUser: false },
 ];
 
 // 検索対象の全ユーザー（仮データ）
@@ -226,10 +243,18 @@ export default function DashboardPage() {
   const archivedFilterRef = useRef<HTMLDivElement>(null);
 
   // プロジェクト設定
-  const [members, setMembers] = useState(MOCK_MEMBERS);
-  const [isEditingName, setIsEditingName] = useState(false);
-  const [editingNameValue, setEditingNameValue] = useState('');
-  const [memberRoleEdits, setMemberRoleEdits] = useState<Record<string, Role>>({});
+  // メンバー一覧の取得結果。詳細と同じく、どのプロジェクトの何回目の取得かを持ち、
+  // 表示中の対象と一致しない間を「読み込み中」とする（members が null は取得失敗）
+  const [membersResult, setMembersResult] = useState<{
+    projectId: string;
+    attempt: number;
+    members: Member[] | null;
+  } | null>(null);
+  const [membersAttempt, setMembersAttempt] = useState(0);
+  // 編集中のプロジェクト名（null は編集していない）。表示している設定のプロジェクトが変わったら閉じる（下の settingsProjectId 参照）
+  const [editingName, setEditingName] = useState<string | null>(null);
+  const [nameError, setNameError] = useState<string | null>(null);
+  const [isSavingName, setIsSavingName] = useState(false);
 
   // モーダル
   const [isCreateProjectModalOpen, setIsCreateProjectModalOpen] = useState(false);
@@ -360,6 +385,8 @@ export default function DashboardPage() {
           detail: {
             id: data.id,
             name: data.name,
+            status: data.status,
+            createdAt: data.createdAt,
             role: ROLE_LABELS[data.myRole],
             progressSummary: data.progressSummary,
           },
@@ -432,6 +459,126 @@ export default function DashboardPage() {
   // ロールに応じた権限（終了済みプロジェクト閲覧中は全て無効）
   const canManage = !isViewingArchived && currentRole === '管理者';
   const canEdit = !isViewingArchived && (currentRole === '管理者' || currentRole === 'テスター');
+
+  // プロジェクト設定を表示している間、そのプロジェクトのメンバー一覧を取得する（api-design.md 3-1）
+  const settingsProjectId = activeNav === 'settings' && canManage ? activeProjectId : '';
+  useEffect(() => {
+    if (!settingsProjectId) {
+      return;
+    }
+    let ignore = false;
+
+    apiGet<{ members: Member[] }>(`/projects/${settingsProjectId}/members`).then((result) => {
+      if (ignore) {
+        return;
+      }
+      if (result.ok) {
+        setMembersResult({
+          projectId: settingsProjectId,
+          attempt: membersAttempt,
+          members: result.data.members,
+        });
+      } else if (result.status === 401) {
+        router.replace('/login');
+      } else if (result.status === 403) {
+        // 管理者でなくなっていた場合など。ダッシュボードへ戻して知らせ（仕様書4-8）、
+        // 詳細を取り直して最新のロールに合わせる（管理者ナビも消える）
+        setActiveNav('dashboard');
+        setToast({ id: Date.now(), message: NO_PERMISSION_PAGE_MESSAGE });
+        setDetailAttempt(attempt => attempt + 1);
+      } else if (result.status === 404) {
+        handleProjectNotFound(result.messages);
+      } else {
+        setMembersResult({ projectId: settingsProjectId, attempt: membersAttempt, members: null });
+      }
+    });
+
+    return () => {
+      ignore = true;
+    };
+  }, [settingsProjectId, membersAttempt, router, handleProjectNotFound]);
+
+  // 表示中のプロジェクトについての取得結果だけを使う（詳細の currentDetailResult と同じ考え方）
+  const currentMembersResult =
+    membersResult?.projectId === settingsProjectId && membersResult.attempt === membersAttempt
+      ? membersResult
+      : null;
+  const members = currentMembersResult?.members ?? null;
+  const isLoadingMembers = currentMembersResult === null;
+  const membersFetchError = currentMembersResult !== null && currentMembersResult.members === null;
+
+  // 表示している設定のプロジェクトが変わったら（別のプロジェクトへ切り替えた、設定から離れた）、名前の編集を閉じる。
+  // 戻ったときに前の入力やエラーが残っていないようにし、切替後に前の入力で保存してしまうことも防ぐ。
+  // effectではなく描画中に前回の値と比べて更新する（ロールの変化でナビを戻す処理と同じ書き方）
+  const [prevSettingsProjectId, setPrevSettingsProjectId] = useState(settingsProjectId);
+  if (settingsProjectId !== prevSettingsProjectId) {
+    setPrevSettingsProjectId(settingsProjectId);
+    setEditingName(null);
+    setNameError(null);
+  }
+
+  const closeNameEditor = () => {
+    setEditingName(null);
+    setNameError(null);
+  };
+
+  // プロジェクト名の変更（仕様書4-5・2-2、api-design.md 2-4）
+  const handleSaveProjectName = async () => {
+    if (isSavingName || editingName === null || !activeProject) {
+      return;
+    }
+    const projectId = activeProject.id;
+    // 名前が変わっていなければ、APIを呼ばずに閉じるだけにする（前後の空白はAPIでも除かれるため、除いて比べる）
+    if (editingName.trim() === activeProject.name) {
+      closeNameEditor();
+      return;
+    }
+
+    setIsSavingName(true);
+    const result = await apiPatch<UpdateProjectResponse>(`/projects/${projectId}`, {
+      name: editingName,
+    });
+
+    if (result.ok) {
+      const { name } = result.data;
+      // タブ（一覧のキャッシュ）と、見出し・設定画面に使う詳細の両方を、再読み込みせずに新しい名前にする
+      setProjects(prev => prev.map(p => (p.id === projectId ? { ...p, name } : p)));
+      setDetailResult(prev =>
+        prev?.detail?.id === projectId ? { ...prev, detail: { ...prev.detail, name } } : prev,
+      );
+      closeNameEditor();
+      setIsSavingName(false);
+      return;
+    }
+    if (result.status === 401) {
+      // 遷移が終わるまで保存ボタンは無効のままにする
+      router.replace('/login');
+      return;
+    }
+
+    const message = result.messages[0];
+    if (result.status === 400 && message) {
+      // 入力の誤り。APIの文言を入力欄の下に出し、編集は閉じない。
+      // 空のときは「必須」と「1文字以上」のように同じ原因で複数返ることがあるため、先頭の1件だけを出す
+      setNameError(message);
+    } else if (result.status === 404) {
+      closeNameEditor();
+      handleProjectNotFound(result.messages);
+    } else if (result.status === 403) {
+      // 管理者でなくなっていた、または終了済みになっていた場合。詳細を取り直して最新のロールに合わせる
+      // （管理者以外になればナビはダッシュボードに戻る。仕様書2-4）
+      closeNameEditor();
+      setToast({ id: Date.now(), message: message ?? 'この操作を行う権限がありません。' });
+      setDetailAttempt(attempt => attempt + 1);
+    } else {
+      // 入力した名前は残し、そのまま保存し直せるようにする（仕様書4-8「一部操作の失敗は短いエラー通知」）
+      setToast({
+        id: Date.now(),
+        message: result.status === 500 && message ? message : NETWORK_ERROR_MESSAGE,
+      });
+    }
+    setIsSavingName(false);
+  };
 
   // 終了済みプロジェクトを選択
   const handleSelectArchivedProject = (project: ArchivedProject) => {
@@ -969,6 +1116,8 @@ export default function DashboardPage() {
               onDragStart={(e) => handleDragStart(e, project.id)}
               onDragEnd={handleDragEnd}
               onDragOver={(e) => handleDragOver(e, project.id)}
+              // 約20文字を超えると「…」で省略されるため、ホバーで全文を確認できるようにする（仕様書2-2）
+              title={project.name}
             >
               {project.name}
             </div>
@@ -1054,7 +1203,11 @@ export default function DashboardPage() {
           </div>
           <div
             className={`${styles.adminNavItem} ${activeNav === 'settings' ? styles.adminNavItemActive : ''}`}
-            onClick={() => setActiveNav('settings')}
+            onClick={() => {
+              // 開くたびにメンバー一覧を取り直す（ほかの管理者が変更している場合があるため）
+              setMembersAttempt(attempt => attempt + 1);
+              setActiveNav('settings');
+            }}
           >
             プロジェクト設定
           </div>
@@ -1340,67 +1493,81 @@ export default function DashboardPage() {
           <div className={`${styles.card} ${styles.settingsSection}`}>
             <div className={styles.settingsSectionTitle}>基本情報</div>
 
-            <div className={styles.settingsRow}>
+            {/* エラー文は行の2段目に回す。1段目でラベルと入力欄の高さがそろうようにするため */}
+            <div className={`${styles.settingsRow} ${styles.settingsRowWrap}`}>
               <div className={styles.settingsLabel}>プロジェクト名</div>
-              {!isEditingName ? (
+              {editingName === null ? (
                 <div className={styles.settingsValue}>
                   <span>{activeProject?.name}</span>
                   <span
                     className={styles.editIcon}
                     onClick={() => {
-                      setEditingNameValue(activeProject?.name || '');
-                      setIsEditingName(true);
+                      if (activeProject) {
+                        setEditingName(activeProject.name);
+                        setNameError(null);
+                      }
                     }}
                   >
                     ✎
                   </span>
                 </div>
               ) : (
-                <div className={styles.settingsValueEdit}>
-                  <input
-                    type="text"
-                    value={editingNameValue}
-                    onChange={(e) => setEditingNameValue(e.target.value)}
-                    maxLength={50}
-                  />
-                  <button
-                    className={`${styles.btnMini} ${styles.btnMiniPrimary}`}
-                    onClick={() => {
-                      if (editingNameValue.trim() && activeProject) {
-                        setProjects(prev => prev.map(p =>
-                          p.id === activeProject.id ? { ...p, name: editingNameValue.trim() } : p
-                        ));
-                      }
-                      setIsEditingName(false);
-                    }}
-                  >
-                    保存
-                  </button>
-                  <button
-                    className={styles.btnMini}
-                    onClick={() => setIsEditingName(false)}
-                  >
-                    キャンセル
-                  </button>
-                </div>
+                <>
+                  <div className={styles.settingsValueEdit}>
+                    {/* maxLengthは付けない。超えた分が黙って切り捨てられるより、エラーで伝える方が分かりやすいため（作成モーダルと同じ） */}
+                    <input
+                      type="text"
+                      value={editingName}
+                      onChange={(e) => {
+                        setEditingName(e.target.value);
+                        if (nameError) {
+                          setNameError(null);
+                        }
+                      }}
+                      className={nameError ? styles.inputError : ''}
+                    />
+                    <button
+                      className={`${styles.btnMini} ${styles.btnMiniPrimary}`}
+                      onClick={handleSaveProjectName}
+                      disabled={isSavingName}
+                    >
+                      {isSavingName ? '保存中...' : '保存'}
+                    </button>
+                    <button
+                      className={styles.btnMini}
+                      onClick={closeNameEditor}
+                      disabled={isSavingName}
+                    >
+                      キャンセル
+                    </button>
+                  </div>
+                  {nameError && (
+                    <div className={`${styles.fieldErrorSm} ${styles.settingsRowError}`}>{nameError}</div>
+                  )}
+                </>
               )}
             </div>
 
             <div className={styles.settingsRow}>
               <div className={styles.settingsLabel}>ステータス</div>
               <div className={styles.settingsValue}>
-                <span className={styles.statusPill}>進行中</span>
+                <span className={styles.statusPill}>
+                  {activeProjectDetail?.status === 'archived' ? '終了済み' : '進行中'}
+                </span>
               </div>
             </div>
 
             <div className={styles.settingsRow}>
               <div className={styles.settingsLabel}>参加メンバー数</div>
-              <div className={styles.settingsValue}>{members.length}名</div>
+              {/* メンバー一覧（3-1）の件数を使う。取得できるまで（取得失敗時も）は「—」 */}
+              <div className={styles.settingsValue}>{members ? `${members.length}名` : '—'}</div>
             </div>
 
             <div className={`${styles.settingsRow} ${styles.settingsRowLast}`}>
               <div className={styles.settingsLabel}>作成日</div>
-              <div className={styles.settingsValue}>2026年3月15日</div>
+              <div className={styles.settingsValue}>
+                {activeProjectDetail ? DATE_FORMAT_JST.format(new Date(activeProjectDetail.createdAt)) : '—'}
+              </div>
             </div>
           </div>
 
@@ -1408,95 +1575,96 @@ export default function DashboardPage() {
           <div className={`${styles.card} ${styles.settingsSection}`}>
             <div className={styles.settingsSectionHead}>
               <div className={styles.settingsSectionTitle}>メンバー管理</div>
+              {/* メンバーの追加・ロール変更・削除・離脱は、結合4b・4cで実APIにつなぐ。
+                  それまでは、保存されないのに動いたように見えないよう、操作を押せない状態にしておく */}
               <button
                 className={styles.btnSecondary}
                 onClick={() => setIsAddMemberModalOpen(true)}
+                disabled
               >
                 ＋ メンバーを追加
               </button>
             </div>
 
-            <table className={styles.memberTable}>
-              <thead>
-                <tr>
-                  <th style={{ width: '44%' }}>メンバー</th>
-                  <th style={{ width: '20%' }}>ロール</th>
-                  <th style={{ width: '36%' }}></th>
-                </tr>
-              </thead>
-              <tbody>
-                {members.map(member => {
-                  const editedRole = memberRoleEdits[member.id];
-                  const hasRoleChange = editedRole && editedRole !== member.role;
-                  const adminCount = members.filter(m => m.role === '管理者').length;
-                  const canLeave = !(member.isCurrentUser && member.role === '管理者' && adminCount <= 1);
+            {isLoadingMembers ? (
+              <div className={`${styles.loadingCard} ${styles.sectionState}`}>
+                <div className={styles.spinner}></div>
+                <div className={styles.loadingText}>読み込み中…</div>
+              </div>
+            ) : membersFetchError || !members ? (
+              <div className={`${styles.errorCard} ${styles.sectionState}`}>
+                <div className={styles.errorIcon}>!</div>
+                <div className={styles.errorTitle}>メンバーを取得できませんでした</div>
+                <div className={styles.errorDesc}>{NETWORK_ERROR_MESSAGE}</div>
+                <button
+                  className={styles.btnRetry}
+                  onClick={() => setMembersAttempt(attempt => attempt + 1)}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="23 4 23 10 17 10"></polyline>
+                    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                  </svg>
+                  再読み込み
+                </button>
+              </div>
+            ) : (
+              <table className={styles.memberTable}>
+                <thead>
+                  <tr>
+                    <th style={{ width: '44%' }}>メンバー</th>
+                    <th style={{ width: '20%' }}>ロール</th>
+                    <th style={{ width: '36%' }}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {members.map(member => {
+                    const adminCount = members.filter(m => m.role === 'admin').length;
+                    const canLeave = !(member.isMe && member.role === 'admin' && adminCount <= 1);
 
-                  return (
-                    <tr key={member.id}>
-                      <td>
-                        <div className={styles.memberName}>
-                          {member.name}
-                          {member.isCurrentUser && <span className={styles.youBadge}>あなた</span>}
-                        </div>
-                        <div className={styles.memberEmail}>{member.email}</div>
-                      </td>
-                      <td>
-                        {member.isCurrentUser && member.role === '管理者' ? (
-                          <span className={`${styles.rolePill} ${styles.roleAdmin}`}>管理者</span>
-                        ) : (
-                          <div className={styles.roleCell}>
-                            <select
-                              className={styles.roleSelect}
-                              value={editedRole || member.role}
-                              onChange={(e) => setMemberRoleEdits(prev => ({
-                                ...prev,
-                                [member.id]: e.target.value as Role
-                              }))}
-                            >
-                              <option value="管理者">管理者</option>
-                              <option value="テスター">テスター</option>
-                              <option value="閲覧者">閲覧者</option>
-                            </select>
-                            {hasRoleChange && (
-                              <button
-                                className={`${styles.btnMini} ${styles.btnMiniPrimary}`}
-                                onClick={() => {
-                                  setMembers(prev => prev.map(m =>
-                                    m.id === member.id ? { ...m, role: editedRole } : m
-                                  ));
-                                  setMemberRoleEdits(prev => {
-                                    const next = { ...prev };
-                                    delete next[member.id];
-                                    return next;
-                                  });
-                                }}
-                              >
-                                保存
-                              </button>
-                            )}
+                    return (
+                      <tr key={member.id}>
+                        <td>
+                          <div className={styles.memberName}>
+                            {member.displayName}
+                            {member.isMe && <span className={styles.youBadge}>あなた</span>}
                           </div>
-                        )}
-                      </td>
-                      <td className={styles.memberActions}>
-                        {member.isCurrentUser ? (
-                          <button
-                            className={styles.btnMini}
-                            disabled={!canLeave}
-                            title={!canLeave ? '他に管理者がいないため離脱できません' : undefined}
-                          >
-                            離脱
-                          </button>
-                        ) : (
-                          <button className={`${styles.btnMini} ${styles.btnMiniDanger}`}>
-                            削除
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                          <div className={styles.memberEmail}>{member.email}</div>
+                        </td>
+                        <td>
+                          {/* 管理者自身のロールは変更できない（仕様書4-6） */}
+                          {member.isMe && member.role === 'admin' ? (
+                            <span className={`${styles.rolePill} ${styles.roleAdmin}`}>管理者</span>
+                          ) : (
+                            <div className={styles.roleCell}>
+                              <select className={styles.roleSelect} value={member.role} disabled>
+                                <option value="admin">{ROLE_LABELS.admin}</option>
+                                <option value="tester">{ROLE_LABELS.tester}</option>
+                                <option value="viewer">{ROLE_LABELS.viewer}</option>
+                              </select>
+                            </div>
+                          )}
+                        </td>
+                        <td className={styles.memberActions}>
+                          {member.isMe ? (
+                            <button
+                              className={styles.btnMini}
+                              disabled
+                              title={!canLeave ? '他に管理者がいないため離脱できません' : undefined}
+                            >
+                              離脱
+                            </button>
+                          ) : (
+                            <button className={`${styles.btnMini} ${styles.btnMiniDanger}`} disabled>
+                              削除
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
           </div>
 
           {/* プロジェクト終了 */}
@@ -1678,7 +1846,7 @@ export default function DashboardPage() {
                            user.email.toLowerCase().includes(query);
                   })
                   .map(user => {
-                    const isJoined = members.some(m => m.id === user.id);
+                    const isJoined = (members ?? []).some(m => m.userId === user.id);
                     return (
                       <div
                         key={user.id}
@@ -1691,21 +1859,8 @@ export default function DashboardPage() {
                         {isJoined ? (
                           <div className={styles.joinedLabel}>参加済み</div>
                         ) : (
-                          <button
-                            className={styles.btnAddMember}
-                            onClick={() => {
-                              setMembers(prev => [
-                                ...prev,
-                                {
-                                  id: user.id,
-                                  name: user.name,
-                                  email: user.email,
-                                  role: 'テスター' as const,
-                                  isCurrentUser: false,
-                                }
-                              ]);
-                            }}
-                          >
+                          // 追加は結合4bで実APIにつなぐ。それまでは押せない状態にしておく
+                          <button className={styles.btnAddMember} disabled>
                             追加
                           </button>
                         )}
