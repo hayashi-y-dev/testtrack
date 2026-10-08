@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { apiGet, apiPatch, apiPost, NETWORK_ERROR_MESSAGE } from '@/lib/api';
+import { apiDelete, apiGet, apiPatch, apiPost, NETWORK_ERROR_MESSAGE } from '@/lib/api';
 import Toast from '@/components/Toast';
 import styles from './dashboard.module.css';
 
@@ -267,6 +267,15 @@ export default function DashboardPage() {
   } | null>(null);
   // 追加の通信中のユーザー（その行の「追加」を押せなくする）
   const [addingUserIds, setAddingUserIds] = useState<string[]>([]);
+  // メンバー一覧で選んだが、まだ保存していないロール（メンバーID → ロール）。「保存」で確定する（仕様書4-6）
+  const [roleEdits, setRoleEdits] = useState<Record<string, ApiRole>>({});
+  // ロール変更の通信中のメンバー（その行のプルダウンと「保存」を押せなくする）
+  const [savingRoleMemberIds, setSavingRoleMemberIds] = useState<string[]>([]);
+  // 削除の確認モーダルの対象（null は閉じている）
+  const [removeTarget, setRemoveTarget] = useState<Member | null>(null);
+  const [isRemovingMember, setIsRemovingMember] = useState(false);
+  const [isLeaveModalOpen, setIsLeaveModalOpen] = useState(false);
+  const [isLeaving, setIsLeaving] = useState(false);
   const [isTerminateModalOpen, setIsTerminateModalOpen] = useState(false);
   const [isArchivingProject, setIsArchivingProject] = useState(false);
 
@@ -524,6 +533,18 @@ export default function DashboardPage() {
     setIsAddMemberModalOpen(false);
     setMemberSearchQuery('');
     setMemberSearchResult(null);
+    setRemoveTarget(null);
+    setIsLeaveModalOpen(false);
+  }
+
+  // メンバー一覧を取り直すとき（設定を開き直した、再読み込み、400などで取り直す）と、
+  // 設定のプロジェクトが変わったときは、保存していないロールの選択を元に戻す
+  // （取り直した一覧と食い違った選択が残らないようにするため）
+  const membersKey = `${settingsProjectId}/${membersAttempt}`;
+  const [prevMembersKey, setPrevMembersKey] = useState(membersKey);
+  if (membersKey !== prevMembersKey) {
+    setPrevMembersKey(membersKey);
+    setRoleEdits({});
   }
 
   const closeNameEditor = () => {
@@ -709,6 +730,153 @@ export default function DashboardPage() {
         message: result.status === 500 && message ? message : NETWORK_ERROR_MESSAGE,
       });
     }
+  };
+
+  // ロール変更（仕様書4-6、api-design.md 3-4）。プルダウンで選んだロールを、行の「保存」で確定する。
+  // 対象のメンバーは、押されたボタンの value から読む（メンバー追加の「追加」ボタンと同じ理由）
+  const handleSaveRole = async (e: React.MouseEvent<HTMLButtonElement>) => {
+    const memberId = e.currentTarget.value;
+    const role = roleEdits[memberId];
+    if (!role || savingRoleMemberIds.includes(memberId) || !settingsProjectId) {
+      return;
+    }
+    const projectId = settingsProjectId;
+
+    setSavingRoleMemberIds(prev => [...prev, memberId]);
+    const result = await apiPatch<Member>(`/projects/${projectId}/members/${memberId}`, { role });
+    setSavingRoleMemberIds(prev => prev.filter(id => id !== memberId));
+
+    if (result.ok) {
+      // 一覧は取り直さず、レスポンス（3-1の1件分と同じ形）でその行を置き換え、保存した選択を消す
+      setMembersResult(prev =>
+        prev?.projectId === projectId && prev.members
+          ? { ...prev, members: prev.members.map(m => (m.id === memberId ? result.data : m)) }
+          : prev,
+      );
+      setRoleEdits(prev => {
+        const next = { ...prev };
+        delete next[memberId];
+        return next;
+      });
+      return;
+    }
+    if (result.status === 401) {
+      router.replace('/login');
+      return;
+    }
+
+    const message = result.messages[0];
+    if (result.status === 400 || result.status === 404) {
+      // 400（管理者が0人になる、自分自身の操作など）と404（対象のメンバーがすでに外されていた）は、
+      // 別の管理者が先に操作した場合に起きうる。一覧を取り直して実際の状態に合わせる
+      // （プロジェクト自体がなくなっていた場合は、取り直しの404で、プロジェクトが見つからない扱いになる）
+      setToast({ id: Date.now(), message: message ?? NETWORK_ERROR_MESSAGE });
+      setMembersAttempt(attempt => attempt + 1);
+    } else if (result.status === 403) {
+      // 管理者でなくなっていた場合など。名前変更・メンバー追加の403と同じく、詳細を取り直す
+      setToast({ id: Date.now(), message: message ?? 'この操作を行う権限がありません。' });
+      setDetailAttempt(attempt => attempt + 1);
+    } else {
+      // 選んだロールは残し、そのまま保存し直せるようにする
+      setToast({
+        id: Date.now(),
+        message: result.status === 500 && message ? message : NETWORK_ERROR_MESSAGE,
+      });
+    }
+  };
+
+  // メンバー削除（仕様書4-6、api-design.md 3-5）。確認モーダルの「削除する」で実行する
+  const handleRemoveMember = async () => {
+    if (isRemovingMember || !removeTarget || !settingsProjectId) {
+      return;
+    }
+    const projectId = settingsProjectId;
+    const memberId = removeTarget.id;
+
+    setIsRemovingMember(true);
+    const result = await apiDelete(`/projects/${projectId}/members/${memberId}`);
+
+    if (result.ok) {
+      // 一覧は取り直さず、その行を消す（参加メンバー数も一覧の件数から減る）
+      setMembersResult(prev =>
+        prev?.projectId === projectId && prev.members
+          ? { ...prev, members: prev.members.filter(m => m.id !== memberId) }
+          : prev,
+      );
+      setRemoveTarget(null);
+      setIsRemovingMember(false);
+      return;
+    }
+    if (result.status === 401) {
+      // 遷移が終わるまで、確認モーダルのボタンは押せないままにする
+      router.replace('/login');
+      return;
+    }
+
+    const message = result.messages[0];
+    if (result.status === 400 || result.status === 404) {
+      // ロール変更と同じく、別の管理者が先に操作した場合に起きうる。一覧を取り直して実際の状態に合わせる
+      setRemoveTarget(null);
+      setToast({ id: Date.now(), message: message ?? NETWORK_ERROR_MESSAGE });
+      setMembersAttempt(attempt => attempt + 1);
+    } else if (result.status === 403) {
+      setRemoveTarget(null);
+      setToast({ id: Date.now(), message: message ?? 'この操作を行う権限がありません。' });
+      setDetailAttempt(attempt => attempt + 1);
+    } else {
+      // 確認モーダルは開いたまま、そのまま削除し直せるようにする
+      setToast({
+        id: Date.now(),
+        message: result.status === 500 && message ? message : NETWORK_ERROR_MESSAGE,
+      });
+    }
+    setIsRemovingMember(false);
+  };
+
+  // 自分の離脱（仕様書3-4・4-6、api-design.md 3-6）。確認モーダルの「離脱する」で実行する
+  const handleLeaveProject = async () => {
+    if (isLeaving || !settingsProjectId) {
+      return;
+    }
+    const projectId = settingsProjectId;
+
+    setIsLeaving(true);
+    const result = await apiPost<{ message: string }>(`/projects/${projectId}/members/leave`);
+
+    if (result.ok) {
+      // 離脱したプロジェクトは表示できなくなるため、一覧を取り直して先頭の進行中プロジェクトのダッシュボードへ移り、
+      // APIの文言で知らせる（仕様書4-6。進行中が0件なら空状態。動きはプロジェクトが見つからない場合と同じ）
+      setIsLeaveModalOpen(false);
+      setActiveNav('dashboard');
+      handleProjectNotFound([result.data.message]);
+      setIsLeaving(false);
+      return;
+    }
+    if (result.status === 401) {
+      router.replace('/login');
+      return;
+    }
+
+    const message = result.messages[0];
+    if (result.status === 400) {
+      // ほかの管理者がいなくなっていた場合など。一覧を取り直して実際の状態に合わせる（離脱は押せなくなる）
+      setIsLeaveModalOpen(false);
+      setToast({ id: Date.now(), message: message ?? NETWORK_ERROR_MESSAGE });
+      setMembersAttempt(attempt => attempt + 1);
+    } else if (result.status === 403) {
+      setIsLeaveModalOpen(false);
+      setToast({ id: Date.now(), message: message ?? 'この操作を行う権限がありません。' });
+      setDetailAttempt(attempt => attempt + 1);
+    } else if (result.status === 404) {
+      setIsLeaveModalOpen(false);
+      handleProjectNotFound(result.messages);
+    } else {
+      setToast({
+        id: Date.now(),
+        message: result.status === 500 && message ? message : NETWORK_ERROR_MESSAGE,
+      });
+    }
+    setIsLeaving(false);
   };
 
   // 終了済みプロジェクトを選択
@@ -1745,11 +1913,13 @@ export default function DashboardPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {/* ロール変更・削除・離脱は、結合4cで実APIにつなぐ。それまでは、保存されないのに
-                      動いたように見えないよう、押せない状態にしておく */}
                   {members.map(member => {
                     const adminCount = members.filter(m => m.role === 'admin').length;
+                    // 自分の離脱は、ほかに管理者がいるときだけできる（仕様書3-4）
                     const canLeave = !(member.isMe && member.role === 'admin' && adminCount <= 1);
+                    const editedRole = roleEdits[member.id];
+                    const hasRoleChange = editedRole !== undefined && editedRole !== member.role;
+                    const isSavingRole = savingRoleMemberIds.includes(member.id);
 
                     return (
                       <tr key={member.id}>
@@ -1766,11 +1936,30 @@ export default function DashboardPage() {
                             <span className={`${styles.rolePill} ${styles.roleAdmin}`}>管理者</span>
                           ) : (
                             <div className={styles.roleCell}>
-                              <select className={styles.roleSelect} value={member.role} disabled>
+                              {/* 選んだだけでは保存せず、元と違うロールを選んだときだけ「保存」を出す（仕様書4-6） */}
+                              <select
+                                className={styles.roleSelect}
+                                value={editedRole ?? member.role}
+                                onChange={(e) => {
+                                  const role = e.target.value as ApiRole;
+                                  setRoleEdits(prev => ({ ...prev, [member.id]: role }));
+                                }}
+                                disabled={isSavingRole}
+                              >
                                 <option value="admin">{ROLE_LABELS.admin}</option>
                                 <option value="tester">{ROLE_LABELS.tester}</option>
                                 <option value="viewer">{ROLE_LABELS.viewer}</option>
                               </select>
+                              {hasRoleChange && (
+                                <button
+                                  className={`${styles.btnMini} ${styles.btnMiniPrimary}`}
+                                  value={member.id}
+                                  onClick={handleSaveRole}
+                                  disabled={isSavingRole}
+                                >
+                                  {isSavingRole ? '保存中...' : '保存'}
+                                </button>
+                              )}
                             </div>
                           )}
                         </td>
@@ -1778,13 +1967,17 @@ export default function DashboardPage() {
                           {member.isMe ? (
                             <button
                               className={styles.btnMini}
-                              disabled
+                              onClick={() => setIsLeaveModalOpen(true)}
+                              disabled={!canLeave}
                               title={!canLeave ? '他に管理者がいないため離脱できません' : undefined}
                             >
                               離脱
                             </button>
                           ) : (
-                            <button className={`${styles.btnMini} ${styles.btnMiniDanger}`} disabled>
+                            <button
+                              className={`${styles.btnMini} ${styles.btnMiniDanger}`}
+                              onClick={() => setRemoveTarget(member)}
+                            >
                               削除
                             </button>
                           )}
@@ -2014,6 +2207,83 @@ export default function DashboardPage() {
                 onClick={closeAddMemberModal}
               >
                 閉じる
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== メンバー削除の確認モーダル（仕様書4-6） ===== */}
+      {removeTarget && (
+        <div
+          className={styles.modalOverlay}
+          onClick={() => {
+            // 通信中は閉じない（プロジェクト終了と同じ）
+            if (!isRemovingMember) {
+              setRemoveTarget(null);
+            }
+          }}
+        >
+          <div className={styles.modalBox} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.modalTitle}>メンバーを削除しますか？</div>
+            <p className={styles.modalDesc}>
+              このプロジェクトから外します。アカウント自体は削除されず、あとから追加し直せます。
+            </p>
+            <div className={styles.modalTarget}>
+              対象メンバー: <b>{removeTarget.displayName}</b>（{removeTarget.email}）
+            </div>
+            <div className={styles.modalActions}>
+              <button
+                className={styles.btnMini}
+                onClick={() => setRemoveTarget(null)}
+                disabled={isRemovingMember}
+              >
+                キャンセル
+              </button>
+              <button
+                className={styles.btnDanger}
+                onClick={handleRemoveMember}
+                disabled={isRemovingMember}
+              >
+                {isRemovingMember ? '削除中...' : '削除する'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== 離脱の確認モーダル（仕様書4-6） ===== */}
+      {isLeaveModalOpen && (
+        <div
+          className={styles.modalOverlay}
+          onClick={() => {
+            if (!isLeaving) {
+              setIsLeaveModalOpen(false);
+            }
+          }}
+        >
+          <div className={styles.modalBox} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.modalTitle}>プロジェクトから離脱しますか？</div>
+            <p className={styles.modalDesc}>
+              離脱すると、このプロジェクトを表示できなくなります。戻るには、ほかの管理者に追加してもらう必要があります。
+            </p>
+            <div className={styles.modalTarget}>
+              対象プロジェクト: <b>{activeProject?.name}</b>
+            </div>
+            <div className={styles.modalActions}>
+              <button
+                className={styles.btnMini}
+                onClick={() => setIsLeaveModalOpen(false)}
+                disabled={isLeaving}
+              >
+                キャンセル
+              </button>
+              <button
+                className={styles.btnDanger}
+                onClick={handleLeaveProject}
+                disabled={isLeaving}
+              >
+                {isLeaving ? '離脱中...' : '離脱する'}
               </button>
             </div>
           </div>

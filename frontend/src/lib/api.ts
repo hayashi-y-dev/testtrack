@@ -29,8 +29,12 @@ export function apiPatch<T>(path: string, body?: unknown): Promise<ApiResult<T>>
   return request<T>('PATCH', path, body);
 }
 
+export function apiDelete<T>(path: string): Promise<ApiResult<T>> {
+  return request<T>('DELETE', path);
+}
+
 async function request<T>(
-  method: 'GET' | 'POST' | 'PATCH',
+  method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
   path: string,
   body?: unknown,
 ): Promise<ApiResult<T>> {
