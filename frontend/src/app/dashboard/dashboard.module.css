@@ -1165,6 +1165,11 @@
   padding: 28px 10px;
 }
 
+/* 検索の失敗の表示（結果欄の中に短く出す） */
+.searchHintError {
+  color: var(--fail);
+}
+
 .resultList {
   max-height: 280px;
   overflow-y: auto;
@@ -1226,8 +1231,14 @@
   white-space: nowrap;
 }
 
-.btnAddMember:hover {
+.btnAddMember:hover:not(:disabled) {
   background: var(--accent-glow);
+}
+
+/* 追加の通信中。btnMini:disabled と同じ見せ方にそろえる */
+.btnAddMember:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
 }
 
 .modalRoleNote {

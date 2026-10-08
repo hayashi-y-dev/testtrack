@@ -92,6 +92,14 @@ type Member = {
   isMe: boolean;
 };
 
+// GET /projects/:id/members/search のレスポンスの1件（api-design.md 3-2）
+type SearchResultUser = {
+  userId: string;
+  displayName: string;
+  email: string;
+  alreadyJoined: boolean;
+};
+
 // PATCH /projects/:id のレスポンス（api-design.md 2-4。作成と同じ形）
 type UpdateProjectResponse = ProjectListResponse['projects'][number];
 
@@ -112,6 +120,9 @@ const EMPTY_SUMMARY: ProgressSummary = {
 };
 
 const PROJECT_NOT_FOUND_MESSAGE = '指定されたプロジェクトが見つかりません。';
+// メンバー検索で、入力が止まってから検索するまでの待ち時間（1文字ごとに通信しないため）
+const MEMBER_SEARCH_DELAY_MS = 300;
+
 // 権限のない画面を開こうとした場合の通知（仕様書4-8）
 const NO_PERMISSION_PAGE_MESSAGE = 'このページを表示する権限がありません。';
 
@@ -176,20 +187,6 @@ const MOCK_FILES: FileData[] = [
   { id: '3', name: 'EC_決済フロー検証テスト_v1.0.xlsx', progress: 72, updatedAt: '2026/08/28 11:07', updatedBy: '鈴木 健一', hasHistory: true },
   { id: '4', name: 'EC_管理画面テスト仕様書_v3.1.xlsx', progress: 41, updatedAt: '2026/08/27 16:30', updatedBy: '佐藤 花子', hasHistory: true },
   { id: '5', name: 'EC_レスポンシブUI確認テスト_詳細版_v2.0.xlsx', progress: 0, updatedAt: '2026/08/25 09:20', updatedBy: '高橋 裕子', hasHistory: false },
-];
-
-// 検索対象の全ユーザー（仮データ）
-const ALL_USERS = [
-  { id: '1', name: '佐藤 花子', email: 'hanako.sato@example.com' },
-  { id: '2', name: '田中 美咲', email: 'misaki.tanaka@example.com' },
-  { id: '3', name: '山田 太郎', email: 'taro.yamada@example.com' },
-  { id: '4', name: '鈴木 健一', email: 'kenichi.suzuki@example.com' },
-  { id: '5', name: '高橋 裕子', email: 'yuko.takahashi@example.com' },
-  { id: '6', name: '伊藤 直樹', email: 'naoki.ito@example.com' },
-  { id: '7', name: '中村 恵', email: 'megumi.nakamura@example.com' },
-  { id: '8', name: '渡辺 淳', email: 'jun.watanabe@example.com' },
-  { id: '9', name: '小林 真一', email: 'shinichi.kobayashi@example.com' },
-  { id: '10', name: '加藤 由美', email: 'yumi.kato@example.com' },
 ];
 
 export default function DashboardPage() {
@@ -263,6 +260,13 @@ export default function DashboardPage() {
   const [isCreatingProject, setIsCreatingProject] = useState(false);
   const [isAddMemberModalOpen, setIsAddMemberModalOpen] = useState(false);
   const [memberSearchQuery, setMemberSearchQuery] = useState('');
+  // メンバー検索の結果。どの検索語の結果かを持ち、今の入力と一致しない間を「検索中」とする（results が null は検索失敗）
+  const [memberSearchResult, setMemberSearchResult] = useState<{
+    query: string;
+    results: SearchResultUser[] | null;
+  } | null>(null);
+  // 追加の通信中のユーザー（その行の「追加」を押せなくする）
+  const [addingUserIds, setAddingUserIds] = useState<string[]>([]);
   const [isTerminateModalOpen, setIsTerminateModalOpen] = useState(false);
   const [isArchivingProject, setIsArchivingProject] = useState(false);
 
@@ -507,14 +511,19 @@ export default function DashboardPage() {
   const isLoadingMembers = currentMembersResult === null;
   const membersFetchError = currentMembersResult !== null && currentMembersResult.members === null;
 
-  // 表示している設定のプロジェクトが変わったら（別のプロジェクトへ切り替えた、設定から離れた）、名前の編集を閉じる。
-  // 戻ったときに前の入力やエラーが残っていないようにし、切替後に前の入力で保存してしまうことも防ぐ。
+  // 表示している設定のプロジェクトが変わったら（別のプロジェクトへ切り替えた、設定から離れた、403で外れたなど）、
+  // 名前の編集とメンバー追加モーダルを閉じる。戻ったときに前の入力やエラー・検索結果が残っていないようにし、
+  // 切替後に前の入力で保存・追加してしまうことも防ぐ。設定から外れたのにモーダルだけが残り、
+  // 検索が「検索中…」のまま止まることもなくなる（検索は設定を表示している間だけ行うため）。
   // effectではなく描画中に前回の値と比べて更新する（ロールの変化でナビを戻す処理と同じ書き方）
   const [prevSettingsProjectId, setPrevSettingsProjectId] = useState(settingsProjectId);
   if (settingsProjectId !== prevSettingsProjectId) {
     setPrevSettingsProjectId(settingsProjectId);
     setEditingName(null);
     setNameError(null);
+    setIsAddMemberModalOpen(false);
+    setMemberSearchQuery('');
+    setMemberSearchResult(null);
   }
 
   const closeNameEditor = () => {
@@ -578,6 +587,128 @@ export default function DashboardPage() {
       });
     }
     setIsSavingName(false);
+  };
+
+  // メンバー追加モーダルの検索（api-design.md 3-2）。前後の空白を除いた入力で検索し、空なら検索しない
+  const memberSearchTerm = memberSearchQuery.trim();
+  const memberSearchProjectId = isAddMemberModalOpen ? settingsProjectId : '';
+
+  const closeAddMemberModal = () => {
+    setIsAddMemberModalOpen(false);
+    // 開き直したときに、空の検索欄・結果なしの状態から始めるため
+    setMemberSearchQuery('');
+    setMemberSearchResult(null);
+  };
+
+  // 入力が止まってから検索する。続けて入力したときは、前の待ち（と届いていない結果）を取り消すので、
+  // 古い検索の結果が新しい検索の結果を上書きしない
+  useEffect(() => {
+    if (!memberSearchProjectId || !memberSearchTerm) {
+      return;
+    }
+    let ignore = false;
+
+    const timer = setTimeout(() => {
+      apiGet<{ results: SearchResultUser[] }>(
+        `/projects/${memberSearchProjectId}/members/search?q=${encodeURIComponent(memberSearchTerm)}`,
+      ).then((result) => {
+        if (ignore) {
+          return;
+        }
+        if (result.ok) {
+          setMemberSearchResult({ query: memberSearchTerm, results: result.data.results });
+        } else if (result.status === 401) {
+          router.replace('/login');
+        } else if (result.status === 403) {
+          // 管理者でなくなっていた場合など。追加の403と同じく、閉じて知らせ、詳細を取り直す。
+          // （閉じる処理は closeAddMemberModal と同じ。effectの依存を増やさないよう、set関数を直接呼ぶ）
+          setIsAddMemberModalOpen(false);
+          setMemberSearchQuery('');
+          setMemberSearchResult(null);
+          setToast({ id: Date.now(), message: result.messages[0] ?? 'この操作を行う権限がありません。' });
+          setDetailAttempt(attempt => attempt + 1);
+        } else if (result.status === 404) {
+          setIsAddMemberModalOpen(false);
+          setMemberSearchQuery('');
+          setMemberSearchResult(null);
+          handleProjectNotFound(result.messages);
+        } else {
+          setMemberSearchResult({ query: memberSearchTerm, results: null });
+        }
+      });
+    }, MEMBER_SEARCH_DELAY_MS);
+
+    return () => {
+      ignore = true;
+      clearTimeout(timer);
+    };
+  }, [memberSearchProjectId, memberSearchTerm, router, handleProjectNotFound]);
+
+  // 今の入力についての検索結果だけを使う（入力を変えた直後は「検索中」になる）
+  const currentSearchResult =
+    memberSearchResult?.query === memberSearchTerm ? memberSearchResult : null;
+
+  // 検索結果の行を「参加済み」にする（追加に成功したとき、すでに参加済みだったとき）
+  const markSearchResultJoined = (userId: string) => {
+    setMemberSearchResult(prev =>
+      prev?.results
+        ? { ...prev, results: prev.results.map(u => (u.userId === userId ? { ...u, alreadyJoined: true } : u)) }
+        : prev,
+    );
+  };
+
+  // メンバー追加（仕様書4-6、api-design.md 3-3）。追加後もモーダルは開いたままにし、続けて追加できるようにする。
+  // 追加するユーザーは、押されたボタンの value から読む。行ごとに () => handleAddMember(id) と包むと、
+  // Reactのlint（react-hooks/purity）が中の Date.now() を描画中の呼び出しと誤って指摘するため、
+  // ほかのボタンと同じく関数をそのまま onClick に渡す形にしている
+  const handleAddMember = async (e: React.MouseEvent<HTMLButtonElement>) => {
+    const userId = e.currentTarget.value;
+    if (addingUserIds.includes(userId) || !settingsProjectId) {
+      return;
+    }
+    const projectId = settingsProjectId;
+
+    setAddingUserIds(prev => [...prev, userId]);
+    const result = await apiPost<Member>(`/projects/${projectId}/members`, { userId });
+    setAddingUserIds(prev => prev.filter(id => id !== userId));
+
+    if (result.ok) {
+      markSearchResultJoined(userId);
+      // モーダルの後ろにある設定画面のメンバー一覧（と参加メンバー数）にも、取り直さずに加える。
+      // レスポンスは3-1の1件分と同じ形
+      setMembersResult(prev =>
+        prev?.projectId === projectId && prev.members
+          ? { ...prev, members: [...prev.members, result.data] }
+          : prev,
+      );
+      return;
+    }
+    if (result.status === 401) {
+      router.replace('/login');
+      return;
+    }
+
+    const message = result.messages[0];
+    if (result.status === 400) {
+      // すでに参加済み（別の管理者が先に追加した場合など）。行を参加済みにし、一覧も取り直して実際の状態に合わせる
+      setToast({ id: Date.now(), message: message ?? 'このユーザーはすでに参加しています。' });
+      markSearchResultJoined(userId);
+      setMembersAttempt(attempt => attempt + 1);
+    } else if (result.status === 403) {
+      // 管理者でなくなっていた場合など。名前変更の403と同じく、詳細を取り直して最新のロールに合わせる
+      closeAddMemberModal();
+      setToast({ id: Date.now(), message: message ?? 'この操作を行う権限がありません。' });
+      setDetailAttempt(attempt => attempt + 1);
+    } else if (result.status === 404) {
+      closeAddMemberModal();
+      handleProjectNotFound(result.messages);
+    } else {
+      // モーダルは開いたまま、入力と検索結果も残し、そのまま追加し直せるようにする
+      setToast({
+        id: Date.now(),
+        message: result.status === 500 && message ? message : NETWORK_ERROR_MESSAGE,
+      });
+    }
   };
 
   // 終了済みプロジェクトを選択
@@ -1575,12 +1706,9 @@ export default function DashboardPage() {
           <div className={`${styles.card} ${styles.settingsSection}`}>
             <div className={styles.settingsSectionHead}>
               <div className={styles.settingsSectionTitle}>メンバー管理</div>
-              {/* メンバーの追加・ロール変更・削除・離脱は、結合4b・4cで実APIにつなぐ。
-                  それまでは、保存されないのに動いたように見えないよう、操作を押せない状態にしておく */}
               <button
                 className={styles.btnSecondary}
                 onClick={() => setIsAddMemberModalOpen(true)}
-                disabled
               >
                 ＋ メンバーを追加
               </button>
@@ -1617,6 +1745,8 @@ export default function DashboardPage() {
                   </tr>
                 </thead>
                 <tbody>
+                  {/* ロール変更・削除・離脱は、結合4cで実APIにつなぐ。それまでは、保存されないのに
+                      動いたように見えないよう、押せない状態にしておく */}
                   {members.map(member => {
                     const adminCount = members.filter(m => m.role === 'admin').length;
                     const canLeave = !(member.isMe && member.role === 'admin' && adminCount <= 1);
@@ -1807,13 +1937,7 @@ export default function DashboardPage() {
 
       {/* ===== メンバー追加モーダル ===== */}
       {isAddMemberModalOpen && (
-        <div
-          className={styles.modalOverlay}
-          onClick={() => {
-            setIsAddMemberModalOpen(false);
-            setMemberSearchQuery('');
-          }}
-        >
+        <div className={styles.modalOverlay} onClick={closeAddMemberModal}>
           <div
             className={`${styles.modalBox} ${styles.modalBoxWide}`}
             onClick={(e) => e.stopPropagation()}
@@ -1829,44 +1953,54 @@ export default function DashboardPage() {
                 type="text"
                 placeholder="氏名またはメールアドレスで検索"
                 value={memberSearchQuery}
-                onChange={(e) => setMemberSearchQuery(e.target.value)}
+                onChange={(e) => {
+                  // 検索語が変わったら前の結果を捨てる。入力し直して同じ語に戻したとき、前の結果（失敗の表示など）を
+                  // 出さずに「検索中」から検索し直すため。空白を足しただけなど検索語が同じなら、結果はそのまま
+                  if (e.target.value.trim() !== memberSearchTerm) {
+                    setMemberSearchResult(null);
+                  }
+                  setMemberSearchQuery(e.target.value);
+                }}
               />
             </div>
 
-            {!memberSearchQuery.trim() ? (
+            {!memberSearchTerm ? (
               <div className={styles.searchHint}>
                 氏名またはメールアドレスを入力すると、候補が表示されます。
               </div>
+            ) : currentSearchResult === null ? (
+              <div className={styles.searchHint}>検索中…</div>
+            ) : currentSearchResult.results === null ? (
+              <div className={`${styles.searchHint} ${styles.searchHintError}`}>
+                検索できませんでした。入力し直すと、もう一度検索します。
+              </div>
+            ) : currentSearchResult.results.length === 0 ? (
+              <div className={styles.searchHint}>該当するユーザーが見つかりません</div>
             ) : (
               <div className={styles.resultList}>
-                {ALL_USERS
-                  .filter(user => {
-                    const query = memberSearchQuery.toLowerCase();
-                    return user.name.toLowerCase().includes(query) ||
-                           user.email.toLowerCase().includes(query);
-                  })
-                  .map(user => {
-                    const isJoined = (members ?? []).some(m => m.userId === user.id);
-                    return (
-                      <div
-                        key={user.id}
-                        className={`${styles.resultRow} ${isJoined ? styles.resultRowJoined : ''}`}
+                {currentSearchResult.results.map(user => (
+                  <div
+                    key={user.userId}
+                    className={`${styles.resultRow} ${user.alreadyJoined ? styles.resultRowJoined : ''}`}
+                  >
+                    <div className={styles.resultInfo}>
+                      <div className={styles.resultName}>{user.displayName}</div>
+                      <div className={styles.resultEmail}>{user.email}</div>
+                    </div>
+                    {user.alreadyJoined ? (
+                      <div className={styles.joinedLabel}>参加済み</div>
+                    ) : (
+                      <button
+                        className={styles.btnAddMember}
+                        value={user.userId}
+                        onClick={handleAddMember}
+                        disabled={addingUserIds.includes(user.userId)}
                       >
-                        <div className={styles.resultInfo}>
-                          <div className={styles.resultName}>{user.name}</div>
-                          <div className={styles.resultEmail}>{user.email}</div>
-                        </div>
-                        {isJoined ? (
-                          <div className={styles.joinedLabel}>参加済み</div>
-                        ) : (
-                          // 追加は結合4bで実APIにつなぐ。それまでは押せない状態にしておく
-                          <button className={styles.btnAddMember} disabled>
-                            追加
-                          </button>
-                        )}
-                      </div>
-                    );
-                  })}
+                        {addingUserIds.includes(user.userId) ? '追加中...' : '追加'}
+                      </button>
+                    )}
+                  </div>
+                ))}
               </div>
             )}
 
@@ -1877,10 +2011,7 @@ export default function DashboardPage() {
             <div className={styles.modalActions}>
               <button
                 className={`${styles.btnMini} ${styles.btnMiniPrimary}`}
-                onClick={() => {
-                  setIsAddMemberModalOpen(false);
-                  setMemberSearchQuery('');
-                }}
+                onClick={closeAddMemberModal}
               >
                 閉じる
               </button>
