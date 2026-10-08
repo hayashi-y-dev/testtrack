@@ -369,9 +369,13 @@ export default function DashboardPage() {
   // 詳細を表示する対象。終了済みを閲覧中はそのプロジェクト、それ以外は選択中のタブ
   const detailTargetId = viewingArchivedProject?.id ?? activeProjectId;
 
-  // プロジェクトから外された場合など。一覧を取り直して先頭の進行中プロジェクトへ移り、一時的に通知する
-  // （仕様書4-8「権限のない画面へアクセスした場合」の扱いに準じる）
-  const handleProjectNotFound = useCallback((messages: string[]) => {
+  // 一覧を取り直して先頭の進行中プロジェクトへ移り、渡された文言（先頭の1件）をトーストで一時的に通知する。
+  // 表示中のプロジェクトを表示し続けられない、またはサーバーの実際の状態に合わせ直したいときに使う。
+  // - 404：プロジェクトから外された・なくなった場合（仕様書4-8「権限のない画面へアクセスした場合」に準じる）
+  // - タブ並び順の保存の400：参加していない（終了した・外された）プロジェクトが含まれていた場合
+  // - 離脱の成功：離脱したプロジェクトは表示できなくなるため（仕様書4-6）
+  // 文言が空のときは、プロジェクトが見つからない旨を出す（主な使い道が404のため）
+  const reloadProjectListWithNotice = useCallback((messages: string[]) => {
     setToast({ id: Date.now(), message: messages[0] ?? PROJECT_NOT_FOUND_MESSAGE });
     // 取り直した一覧の先頭が、以前に表示していたプロジェクトでも、古い取得結果を使わず読み込み直す
     setDetailResult(null);
@@ -409,7 +413,7 @@ export default function DashboardPage() {
       } else if (result.status === 401) {
         router.replace('/login');
       } else if (result.status === 404) {
-        handleProjectNotFound(result.messages);
+        reloadProjectListWithNotice(result.messages);
       } else {
         setDetailResult({ projectId: detailTargetId, attempt: detailAttempt, detail: null });
       }
@@ -418,7 +422,7 @@ export default function DashboardPage() {
     return () => {
       ignore = true;
     };
-  }, [detailTargetId, detailAttempt, router, handleProjectNotFound]);
+  }, [detailTargetId, detailAttempt, router, reloadProjectListWithNotice]);
 
   // 表示中の対象についての取得結果だけを使う。対象を切り替えた直後や再読み込み中は「読み込み中」になる
   const currentDetailResult =
@@ -500,7 +504,7 @@ export default function DashboardPage() {
         setToast({ id: Date.now(), message: NO_PERMISSION_PAGE_MESSAGE });
         setDetailAttempt(attempt => attempt + 1);
       } else if (result.status === 404) {
-        handleProjectNotFound(result.messages);
+        reloadProjectListWithNotice(result.messages);
       } else {
         setMembersResult({ projectId: settingsProjectId, attempt: membersAttempt, members: null });
       }
@@ -509,7 +513,7 @@ export default function DashboardPage() {
     return () => {
       ignore = true;
     };
-  }, [settingsProjectId, membersAttempt, router, handleProjectNotFound]);
+  }, [settingsProjectId, membersAttempt, router, reloadProjectListWithNotice]);
 
   // 表示中のプロジェクトについての取得結果だけを使う（詳細の currentDetailResult と同じ考え方）
   const currentMembersResult =
@@ -593,7 +597,7 @@ export default function DashboardPage() {
       setNameError(message);
     } else if (result.status === 404) {
       closeNameEditor();
-      handleProjectNotFound(result.messages);
+      reloadProjectListWithNotice(result.messages);
     } else if (result.status === 403) {
       // 管理者でなくなっていた、または終了済みになっていた場合。詳細を取り直して最新のロールに合わせる
       // （管理者以外になればナビはダッシュボードに戻る。仕様書2-4）
@@ -652,7 +656,7 @@ export default function DashboardPage() {
           setIsAddMemberModalOpen(false);
           setMemberSearchQuery('');
           setMemberSearchResult(null);
-          handleProjectNotFound(result.messages);
+          reloadProjectListWithNotice(result.messages);
         } else {
           setMemberSearchResult({ query: memberSearchTerm, results: null });
         }
@@ -663,7 +667,7 @@ export default function DashboardPage() {
       ignore = true;
       clearTimeout(timer);
     };
-  }, [memberSearchProjectId, memberSearchTerm, router, handleProjectNotFound]);
+  }, [memberSearchProjectId, memberSearchTerm, router, reloadProjectListWithNotice]);
 
   // 今の入力についての検索結果だけを使う（入力を変えた直後は「検索中」になる）
   const currentSearchResult =
@@ -722,7 +726,7 @@ export default function DashboardPage() {
       setDetailAttempt(attempt => attempt + 1);
     } else if (result.status === 404) {
       closeAddMemberModal();
-      handleProjectNotFound(result.messages);
+      reloadProjectListWithNotice(result.messages);
     } else {
       // モーダルは開いたまま、入力と検索結果も残し、そのまま追加し直せるようにする
       setToast({
@@ -848,7 +852,7 @@ export default function DashboardPage() {
       // APIの文言で知らせる（仕様書4-6。進行中が0件なら空状態。動きはプロジェクトが見つからない場合と同じ）
       setIsLeaveModalOpen(false);
       setActiveNav('dashboard');
-      handleProjectNotFound([result.data.message]);
+      reloadProjectListWithNotice([result.data.message]);
       setIsLeaving(false);
       return;
     }
@@ -869,7 +873,7 @@ export default function DashboardPage() {
       setDetailAttempt(attempt => attempt + 1);
     } else if (result.status === 404) {
       setIsLeaveModalOpen(false);
-      handleProjectNotFound(result.messages);
+      reloadProjectListWithNotice(result.messages);
     } else {
       setToast({
         id: Date.now(),
@@ -1036,7 +1040,7 @@ export default function DashboardPage() {
       } else if (result.status === 400) {
         // 参加していない（終了した・外された）プロジェクトが含まれていた場合など。
         // 一覧を取り直してサーバーの実際の並びに合わせる（扱いはプロジェクトが見つからない場合と同じ）
-        handleProjectNotFound(result.messages);
+        reloadProjectListWithNotice(result.messages);
       } else {
         // 保存前の並びに戻す。保存済みの並びにないタブ（通信中に作成したものなど）は、今の順のまま末尾に置く
         const savedOrder = savedOrderRef.current;
@@ -1056,7 +1060,7 @@ export default function DashboardPage() {
 
     await sendPendingOrder();
     isSavingOrderRef.current = false;
-  }, [router, handleProjectNotFound]);
+  }, [router, reloadProjectListWithNotice]);
 
   // 並びはドラッグ中（handleDragOver）にその場で入れ替わっているので、離した時点の並びを保存する。
   // タブの外で離した場合も、見えている並びを正として保存する（画面と保存内容を食い違わせないため）
@@ -1324,7 +1328,7 @@ export default function DashboardPage() {
     } else if (result.status === 404) {
       // プロジェクトから外された場合など（一覧を取り直して先頭へ移る。詳細取得時の404と同じ扱い）
       setIsTerminateModalOpen(false);
-      handleProjectNotFound(result.messages);
+      reloadProjectListWithNotice(result.messages);
     } else if (result.status === 403) {
       // 管理者でなくなっていた場合。詳細を取り直して最新のロールに合わせる
       // （管理者以外になればナビはダッシュボードに戻る。仕様書2-4）
