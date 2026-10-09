@@ -150,6 +150,18 @@ const FILE_SEARCH_DELAY_MS = 300;
 
 const PROJECT_NAME_MAX_LENGTH = 50;
 
+// 詳細APIのレスポンスを、画面で使う形（ロールは表示名）にする
+function toProjectDetail(data: ProjectDetailResponse): ProjectDetail {
+  return {
+    id: data.id,
+    name: data.name,
+    status: data.status,
+    createdAt: data.createdAt,
+    role: ROLE_LABELS[data.myRole],
+    progressSummary: data.progressSummary,
+  };
+}
+
 // 2つの並び（プロジェクトIDの配列）が同じ順序かどうか
 function isSameOrder(a: string[], b: string[]): boolean {
   return a.length === b.length && a.every((id, index) => id === b[index]);
@@ -316,6 +328,7 @@ export default function DashboardPage() {
   const [rowMenuPosition, setRowMenuPosition] = useState({ top: 0, left: 0 });
   const [cancelConfirmFile, setCancelConfirmFile] = useState<TestFile | null>(null);
   const [cancelBlockedFile, setCancelBlockedFile] = useState<TestFile | null>(null);
+  const [isUnregistering, setIsUnregistering] = useState(false);
 
   // ファイル読込モーダル
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
@@ -428,18 +441,10 @@ export default function DashboardPage() {
         return;
       }
       if (result.ok) {
-        const { data } = result;
         setDetailResult({
           projectId: detailTargetId,
           attempt: detailAttempt,
-          detail: {
-            id: data.id,
-            name: data.name,
-            status: data.status,
-            createdAt: data.createdAt,
-            role: ROLE_LABELS[data.myRole],
-            progressSummary: data.progressSummary,
-          },
+          detail: toProjectDetail(result.data),
         });
       } else if (result.status === 401) {
         router.replace('/login');
@@ -502,7 +507,17 @@ export default function DashboardPage() {
     setDisplayLimit(5);
     // 表示件数のプルダウンも閉じる。タブのクリック以外（404で一覧を取り直したなど）で切り替わった場合も閉じるため
     setIsSortMenuOpen(false);
+    // 登録取消のモーダルは、前のプロジェクトのファイルを指しているため閉じる
+    setCancelConfirmFile(null);
+    setCancelBlockedFile(null);
   }
+
+  // 表示中のプロジェクト。登録取消の結果が届いたとき、通信中に切り替わっていないかを確かめるために使う
+  // （ボタンの処理の中からは、押した時点の値しか見えないため）
+  const detailTargetIdRef = useRef(detailTargetId);
+  useEffect(() => {
+    detailTargetIdRef.current = detailTargetId;
+  }, [detailTargetId]);
 
   // テストファイル一覧の検索語は、入力が止まってから反映する（1文字ごとに通信しないため。メンバー検索と同じ）
   const fileSearchTerm = searchQuery.trim();
@@ -1297,24 +1312,87 @@ export default function DashboardPage() {
     setRowMenuFile(rowMenuFile?.id === file.id ? null : file);
   };
 
-  // 登録取消は、結合5で4-4につなぐまでの仮の動き。更新履歴の有無は一覧APIに含まれないため、
-  // いったん常に確認モーダルを出す（取消不可のモーダルは、4-4の400で出す想定）
+  // 更新履歴の有無は一覧APIに含まれないため、取り消せるかは押す前には分けず、4-4の400で判断する
   const handleUnregisterClick = () => {
     if (!rowMenuFile) return;
     setRowMenuFile(null);
     setCancelConfirmFile(rowMenuFile);
   };
 
-  // 仮の動き：サーバーには送らず、表示中の一覧からその行を外すだけ（取り直すと戻る）
-  const confirmUnregister = () => {
-    if (cancelConfirmFile) {
-      setFilesResult(prev =>
-        prev?.data
-          ? { ...prev, data: { ...prev.data, files: prev.data.files.filter(f => f.id !== cancelConfirmFile.id) } }
+  // 全体進捗カード・ドーナツ（詳細の進捗サマリー）を取り直す。detailAttempt を増やす取り直しだと
+  // 画面全体が「読み込み中…」になるため、表示はそのままで中身だけを置き換える
+  const refreshProjectDetail = async (projectId: string) => {
+    const result = await apiGet<ProjectDetailResponse>(`/projects/${projectId}`);
+    if (result.ok) {
+      setDetailResult(prev =>
+        prev?.projectId === projectId && prev.detail
+          ? { ...prev, detail: toProjectDetail(result.data) }
           : prev,
       );
+    } else if (result.status === 401) {
+      router.replace('/login');
+    } else if (result.status === 404) {
+      reloadProjectListWithNotice(result.messages);
     }
-    setCancelConfirmFile(null);
+    // そのほかの失敗では前の値のまま（取消の結果はトーストで伝えているため、通知を重ねない）
+  };
+
+  // 登録取消（仕様書6-9・8-2、api-design.md 4-4）。確認モーダルの「登録を取り消す」で実行する
+  const handleConfirmUnregister = async () => {
+    if (isUnregistering || !cancelConfirmFile || !detailTargetId) {
+      return;
+    }
+    const projectId = detailTargetId;
+    const file = cancelConfirmFile;
+
+    setIsUnregistering(true);
+    const result = await apiDelete<{ message: string }>(`/projects/${projectId}/test-files/${file.id}`);
+
+    if (!result.ok && result.status === 401) {
+      // 遷移が終わるまで、確認モーダルのボタンは押せないままにする
+      router.replace('/login');
+      return;
+    }
+    setIsUnregistering(false);
+    // 通信中に別のプロジェクトへ切り替わっていたら、前のプロジェクトの結果で今の画面を書き換えない
+    // （切り替えた時点でモーダルは閉じている）
+    if (detailTargetIdRef.current !== projectId) {
+      return;
+    }
+
+    if (result.ok) {
+      // 取消で進捗が再計算されるため、一覧と全体進捗の両方を取り直す
+      setCancelConfirmFile(null);
+      setToast({ id: Date.now(), message: result.data.message });
+      setFilesAttempt(attempt => attempt + 1);
+      void refreshProjectDetail(projectId);
+      return;
+    }
+
+    const message = result.messages[0];
+    if (result.status === 400) {
+      // 更新履歴があり取り消せない。確認モーダルから、取消不可のモーダル（仕様書6-9）に切り替える
+      setCancelConfirmFile(null);
+      setCancelBlockedFile(file);
+    } else if (result.status === 404) {
+      // 別の人が先に取り消した場合など。一覧と全体進捗を取り直して実際の状態に合わせる
+      // （プロジェクト自体がなくなっていた場合は、取り直しの404で、プロジェクトが見つからない扱いになる）
+      setCancelConfirmFile(null);
+      setToast({ id: Date.now(), message: message ?? NETWORK_ERROR_MESSAGE });
+      setFilesAttempt(attempt => attempt + 1);
+      void refreshProjectDetail(projectId);
+    } else if (result.status === 403) {
+      // 閲覧者になっていた、終了済みになっていた場合など。詳細を取り直して最新のロール・状態に合わせる
+      setCancelConfirmFile(null);
+      setToast({ id: Date.now(), message: message ?? 'この操作を行う権限がありません。' });
+      setDetailAttempt(attempt => attempt + 1);
+    } else {
+      // モーダルは開いたまま、そのまま取り消し直せるようにする
+      setToast({
+        id: Date.now(),
+        message: result.status === 500 && message ? message : NETWORK_ERROR_MESSAGE,
+      });
+    }
   };
 
   // ファイル読込モーダル（結合5で4-2・4-3につなぐまでの仮の動き。新規／更新は、表示中の行だけで判定する）
@@ -2247,7 +2325,12 @@ export default function DashboardPage() {
       {cancelConfirmFile && (
         <div
           className={styles.modalOverlay}
-          onClick={() => setCancelConfirmFile(null)}
+          onClick={() => {
+            // 通信中は閉じない（メンバー削除と同じ）
+            if (!isUnregistering) {
+              setCancelConfirmFile(null);
+            }
+          }}
         >
           <div className={styles.modalBox} onClick={(e) => e.stopPropagation()}>
             <div className={styles.modalTitle}>登録を取り消しますか？</div>
@@ -2259,14 +2342,16 @@ export default function DashboardPage() {
               <button
                 className={styles.btnMini}
                 onClick={() => setCancelConfirmFile(null)}
+                disabled={isUnregistering}
               >
                 キャンセル
               </button>
               <button
                 className={styles.btnDanger}
-                onClick={confirmUnregister}
+                onClick={handleConfirmUnregister}
+                disabled={isUnregistering}
               >
-                登録を取り消す
+                {isUnregistering ? '取り消し中...' : '登録を取り消す'}
               </button>
             </div>
           </div>
