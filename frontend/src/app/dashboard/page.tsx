@@ -227,6 +227,7 @@ export default function DashboardPage() {
   const [detailAttempt, setDetailAttempt] = useState(0);
   const [activeNav, setActiveNav] = useState<'dashboard' | 'settings'>('dashboard');
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement>(null);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   // id は、同じ文言を続けて通知したときにもトーストを作り直して表示時間をやり直すために使う
   const [toast, setToast] = useState<{ id: number; message: string } | null>(null);
@@ -243,6 +244,7 @@ export default function DashboardPage() {
   });
   const [displayLimit, setDisplayLimit] = useState<FileDisplayLimit>(5);
   const [isSortMenuOpen, setIsSortMenuOpen] = useState(false);
+  const sortBoxWrapRef = useRef<HTMLDivElement>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   // タブ並び順の保存（api-design.md 2-6）で使う値。画面の描画には使わないため、stateではなくrefで持つ
   // - dragStartOrderRef: ドラッグを始めた時点の並び（変わっていなければ保存しないための比較用）
@@ -498,6 +500,8 @@ export default function DashboardPage() {
     setFilterSegment('all');
     setFileSort({ key: 'progress', order: 'asc' });
     setDisplayLimit(5);
+    // 表示件数のプルダウンも閉じる。タブのクリック以外（404で一覧を取り直したなど）で切り替わった場合も閉じるため
+    setIsSortMenuOpen(false);
   }
 
   // テストファイル一覧の検索語は、入力が止まってから反映する（1文字ごとに通信しないため。メンバー検索と同じ）
@@ -565,6 +569,41 @@ export default function DashboardPage() {
   // 表示件数で絞られて、表示しきれていないファイルがあるか（「すべて表示」を出すかどうか）
   const hasMoreFiles = displayLimit !== 'all' && filesTotalCount > files.length;
 
+  // 行メニュー（︙）は、一覧の中身が変わったら閉じる。
+  // - 取得の条件が変わったとき（検索・絞り込み・ソート・表示件数・プロジェクトの切り替え・取り直し）
+  // - メニューを開いた行が一覧から消えたとき（取得中・取得失敗で一覧が空になった場合も含む）
+  // クリック以外のきっかけ（キーボードでの入力、404での一覧の取り直しなど）でも閉じるよう、
+  // effectではなく描画中に比べて更新する（表示件数のプルダウンを閉じる処理と同じ書き方）
+  const [prevFilesKey, setPrevFilesKey] = useState(filesKey);
+  if (filesKey !== prevFilesKey) {
+    setPrevFilesKey(filesKey);
+    setRowMenuFile(null);
+  }
+  if (rowMenuFile && !files.some(f => f.id === rowMenuFile.id)) {
+    setRowMenuFile(null);
+  }
+
+  // メニューはすべて、スクロールや画面サイズの変更で閉じる。行メニューと終了済みメニューは画面固定
+  // （position: fixed）のためボタンから離れてしまい、ほかのメニューも閉じ方をそろえる。
+  // 捕捉（第3引数 true）で、ページ全体に限らず画面内のすべてのスクロールを拾う
+  useEffect(() => {
+    if (!rowMenuFile && !isArchivedMenuOpen && !isUserMenuOpen && !isSortMenuOpen) {
+      return;
+    }
+    const closeMenus = () => {
+      setRowMenuFile(null);
+      setIsArchivedMenuOpen(false);
+      setIsUserMenuOpen(false);
+      setIsSortMenuOpen(false);
+    };
+    window.addEventListener('scroll', closeMenus, true);
+    window.addEventListener('resize', closeMenus);
+    return () => {
+      window.removeEventListener('scroll', closeMenus, true);
+      window.removeEventListener('resize', closeMenus);
+    };
+  }, [rowMenuFile, isArchivedMenuOpen, isUserMenuOpen, isSortMenuOpen]);
+
   // 列見出しのクリックで、同じ列なら昇順⇔降順を切り替え、別の列なら昇順から始める（仕様書5-3）
   const handleFileSortClick = (key: FileSortKey) => {
     setFileSort(prev =>
@@ -596,6 +635,35 @@ export default function DashboardPage() {
     document.addEventListener('click', handleClickOutside);
     return () => document.removeEventListener('click', handleClickOutside);
   }, [isArchivedMenuOpen]);
+
+  // ヘッダーのユーザーメニュー（ログアウト）と、テストファイル一覧の表示件数のプルダウンも、
+  // 終了済みメニューと同じく外側のクリックで閉じる。開閉のボタンとメニューは同じ要素の中にあるため、
+  // その要素の外かどうかだけを見る
+  useEffect(() => {
+    if (!isUserMenuOpen) {
+      return;
+    }
+    const handleClickOutside = (e: MouseEvent) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setIsUserMenuOpen(false);
+      }
+    };
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, [isUserMenuOpen]);
+
+  useEffect(() => {
+    if (!isSortMenuOpen) {
+      return;
+    }
+    const handleClickOutside = (e: MouseEvent) => {
+      if (sortBoxWrapRef.current && !sortBoxWrapRef.current.contains(e.target as Node)) {
+        setIsSortMenuOpen(false);
+      }
+    };
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, [isSortMenuOpen]);
 
   // ロールに応じた権限（終了済みプロジェクト閲覧中は全て無効）
   const canManage = !isViewingArchived && currentRole === '管理者';
@@ -1492,6 +1560,7 @@ export default function DashboardPage() {
             ＋ プロジェクト追加
           </button>
           <div
+            ref={userMenuRef}
             className={`${styles.userMenu} ${isUserMenuOpen ? styles.userMenuOpen : ''}`}
             onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
           >
@@ -1762,7 +1831,7 @@ export default function DashboardPage() {
                     全件実施済み
                   </div>
                 </div>
-                <div className={styles.sortBoxWrap}>
+                <div className={styles.sortBoxWrap} ref={sortBoxWrapRef}>
                   <div
                     className={styles.sortBox}
                     onClick={() => setIsSortMenuOpen(!isSortMenuOpen)}
