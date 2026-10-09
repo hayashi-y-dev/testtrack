@@ -44,7 +44,8 @@ export class TestFilesController {
 
   @Post('preview')
   @HttpCode(HttpStatus.OK)
-  @UseInterceptors(FilesInterceptor('files', 50))
+  // ブラウザは日本語のファイル名をUTF-8のまま送るため、utf8として読む（multerの既定はlatin1で文字化けする）
+  @UseInterceptors(FilesInterceptor('files', 50, { defParamCharset: 'utf8' }))
   async preview(
     @Param('projectId') projectId: string,
     @UploadedFiles() files: Express.Multer.File[],

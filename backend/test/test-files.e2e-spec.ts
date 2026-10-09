@@ -489,6 +489,48 @@ describe('テストファイルAPI (e2e)', () => {
     });
   });
 
+  describe('日本語のファイル名', () => {
+    const simpleSheet = (): Buffer =>
+      toXlsxBuffer([
+        ['No', '結果'],
+        [1, 'OK'],
+      ]);
+    const japaneseFileName = (): string => `ログイン機能_テスト仕様書_${++fileNameSeq}.xlsx`;
+
+    it('プレビュー（4-2）は、日本語のファイル名を文字化けさせずに返す', async () => {
+      const name = japaneseFileName();
+      const res = await agent
+        .post(previewUrl())
+        .attach('files', simpleSheet(), name)
+        .expect(200);
+
+      expect(res.body.files[0]).toMatchObject({ fileName: name, operation: 'create' });
+    });
+
+    it('プレビュー（4-2）は、日本語のファイル名でも既存と同名なら更新と判定する', async () => {
+      const name = japaneseFileName();
+      const fileId = await createFileViaApi(name);
+
+      const res = await agent
+        .post(previewUrl())
+        .attach('files', simpleSheet(), name)
+        .expect(200);
+
+      expect(res.body.files[0]).toMatchObject({
+        fileName: name,
+        operation: 'update',
+        existingFileId: fileId,
+      });
+    });
+
+    it('実行（4-3）は、日本語のファイル名をそのまま登録する', async () => {
+      const name = japaneseFileName();
+      await createFileViaApi(name);
+
+      expect(await countTestFiles(name)).toBe(1);
+    });
+  });
+
   describe('DELETE /projects/:id/test-files/:fileId - 登録取消', () => {
     const deleteUrl = (fileId: string): string =>
       `/projects/${fixture.projectId}/test-files/${fileId}`;
