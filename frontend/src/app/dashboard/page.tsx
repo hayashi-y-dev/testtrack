@@ -134,6 +134,20 @@ const DATE_FORMAT_JST = new Intl.DateTimeFormat('ja-JP', {
   day: 'numeric',
 });
 
+// APIの日時（UTC）を、日本時間の「2026/03/15 09:05」の形にする（テストファイル一覧の最終更新）
+const DATE_TIME_FORMAT_JST = new Intl.DateTimeFormat('ja-JP', {
+  timeZone: 'Asia/Tokyo',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  hourCycle: 'h23',
+});
+
+// テストファイル一覧の検索で、入力が止まってから取得するまでの待ち時間（メンバー検索と同じ）
+const FILE_SEARCH_DELAY_MS = 300;
+
 const PROJECT_NAME_MAX_LENGTH = 50;
 
 // 2つの並び（プロジェクトIDの配列）が同じ順序かどうか
@@ -159,14 +173,27 @@ function validateProjectName(trimmed: string): string | null {
   return null;
 }
 
-type FileData = {
+// GET /projects/:id/test-files のレスポンス（api-design.md 4-1）
+type TestFile = {
   id: string;
-  name: string;
-  progress: number | null;
+  fileName: string;
+  // 対象テストケース0件のファイルは null（status は notApplicable）
+  progressRate: number | null;
+  status: 'hasIncomplete' | 'allComplete' | 'notApplicable';
   updatedAt: string;
-  updatedBy: string;
-  hasHistory: boolean;
+  lastUpdatedBy: string;
 };
+
+type TestFileListResponse = {
+  files: TestFile[];
+  // 絞り込み・検索後、表示件数で絞る前の件数
+  totalCount: number;
+};
+
+// 一覧の絞り込み・ソート・表示件数（APIのクエリパラメータの値そのもの。api-design.md 4-1）
+type FileStatusFilter = 'all' | 'hasIncomplete' | 'allComplete';
+type FileSortKey = 'name' | 'progress' | 'updatedAt';
+type FileDisplayLimit = 5 | 10 | 'all';
 
 type UploadFile = {
   name: string;
@@ -178,16 +205,6 @@ type UploadFile = {
   reason?: string;
   resultStatus?: 'success' | 'conflict' | 'error';
 };
-
-// テストファイル一覧の仮データ。プロジェクトIDが実際のUUIDになったため、
-// 結合5（テストファイルAPIとの結合）までは、どのプロジェクトでも同じ仮データを表示する
-const MOCK_FILES: FileData[] = [
-  { id: '1', name: 'EC機能テスト仕様書_v2.3.xlsx', progress: 95, updatedAt: '2026/08/30 18:42', updatedBy: '田中 美咲', hasHistory: true },
-  { id: '2', name: 'EC_API結合テスト仕様書_v1.5.xlsx', progress: 88, updatedAt: '2026/08/29 14:15', updatedBy: '山田 太郎', hasHistory: true },
-  { id: '3', name: 'EC_決済フロー検証テスト_v1.0.xlsx', progress: 72, updatedAt: '2026/08/28 11:07', updatedBy: '鈴木 健一', hasHistory: true },
-  { id: '4', name: 'EC_管理画面テスト仕様書_v3.1.xlsx', progress: 41, updatedAt: '2026/08/27 16:30', updatedBy: '佐藤 花子', hasHistory: true },
-  { id: '5', name: 'EC_レスポンシブUI確認テスト_詳細版_v2.0.xlsx', progress: 0, updatedAt: '2026/08/25 09:20', updatedBy: '高橋 裕子', hasHistory: false },
-];
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -215,9 +232,16 @@ export default function DashboardPage() {
   const [toast, setToast] = useState<{ id: number; message: string } | null>(null);
   // ヘッダーに表示するログイン中のユーザー。取得できるまで（取得失敗時も）は null で、名前を空にする
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
+  // テストファイル一覧の検索・絞り込み・ソート・表示件数。初期値はAPIの既定値と同じ（api-design.md 4-1）
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterSegment, setFilterSegment] = useState<'all' | 'incomplete' | 'complete'>('all');
-  const [displayLimit, setDisplayLimit] = useState<5 | 10 | 'all'>(5);
+  // 実際に検索に使う語。入力が止まってから searchQuery を（前後の空白を除いて）反映する
+  const [debouncedFileSearchTerm, setDebouncedFileSearchTerm] = useState('');
+  const [filterSegment, setFilterSegment] = useState<FileStatusFilter>('all');
+  const [fileSort, setFileSort] = useState<{ key: FileSortKey; order: 'asc' | 'desc' }>({
+    key: 'progress',
+    order: 'asc',
+  });
+  const [displayLimit, setDisplayLimit] = useState<FileDisplayLimit>(5);
   const [isSortMenuOpen, setIsSortMenuOpen] = useState(false);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   // タブ並び順の保存（api-design.md 2-6）で使う値。画面の描画には使わないため、stateではなくrefで持つ
@@ -229,7 +253,13 @@ export default function DashboardPage() {
   const savedOrderRef = useRef<string[]>([]);
   const pendingOrderRef = useRef<string[] | null>(null);
   const isSavingOrderRef = useRef(false);
-  const [files, setFiles] = useState<FileData[]>([]);
+  // テストファイル一覧の取得結果。どの条件（プロジェクト・検索・絞り込み・ソート・表示件数）の
+  // 何回目の取得かを key に持ち、今の条件と一致しない間を「読み込み中」とする（data が null は取得失敗）
+  const [filesResult, setFilesResult] = useState<{
+    key: string;
+    data: TestFileListResponse | null;
+  } | null>(null);
+  const [filesAttempt, setFilesAttempt] = useState(0);
 
   // 終了済みプロジェクト関連
   const [viewingArchivedProject, setViewingArchivedProject] = useState<ArchivedProject | null>(null);
@@ -280,10 +310,10 @@ export default function DashboardPage() {
   const [isArchivingProject, setIsArchivingProject] = useState(false);
 
   // 行メニュー（登録取消用）
-  const [rowMenuFile, setRowMenuFile] = useState<FileData | null>(null);
+  const [rowMenuFile, setRowMenuFile] = useState<TestFile | null>(null);
   const [rowMenuPosition, setRowMenuPosition] = useState({ top: 0, left: 0 });
-  const [cancelConfirmFile, setCancelConfirmFile] = useState<FileData | null>(null);
-  const [cancelBlockedFile, setCancelBlockedFile] = useState<FileData | null>(null);
+  const [cancelConfirmFile, setCancelConfirmFile] = useState<TestFile | null>(null);
+  const [cancelBlockedFile, setCancelBlockedFile] = useState<TestFile | null>(null);
 
   // ファイル読込モーダル
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
@@ -379,6 +409,7 @@ export default function DashboardPage() {
     setToast({ id: Date.now(), message: messages[0] ?? PROJECT_NOT_FOUND_MESSAGE });
     // 取り直した一覧の先頭が、以前に表示していたプロジェクトでも、古い取得結果を使わず読み込み直す
     setDetailResult(null);
+    setFilesResult(null);
     setListStatus('loading');
     setListAttempt(attempt => attempt + 1);
   }, []);
@@ -408,8 +439,6 @@ export default function DashboardPage() {
             progressSummary: data.progressSummary,
           },
         });
-        // ファイル一覧は結合5まで仮データ。ファイル0件のプロジェクトでは、一覧の空状態（仕様書5-5）が出るよう空にする
-        setFiles(data.progressSummary.fileCount > 0 ? MOCK_FILES : []);
       } else if (result.status === 401) {
         router.replace('/login');
       } else if (result.status === 404) {
@@ -455,6 +484,101 @@ export default function DashboardPage() {
 
   // 終了済みプロジェクト閲覧中かどうか
   const isViewingArchived = viewingArchivedProject !== null;
+
+  // 表示するプロジェクトが変わったら、テストファイル一覧の検索・絞り込み・ソート・表示件数を初期状態に戻す。
+  // タブのクリックに限らず、終了済みを開いたときや、404などで一覧を取り直して別のプロジェクトへ移ったときも戻す。
+  // effectではなく描画中に前回の値と比べて更新する。描き直す前に条件がそろうので、前の条件での取得は走らず、
+  // 取得は新しい条件での1回だけになる。実際に検索に使う語も同時に空にする（入力が止まるのを待つと、
+  // その間に前の検索語で取得してしまうため）
+  const [prevDetailTargetId, setPrevDetailTargetId] = useState(detailTargetId);
+  if (detailTargetId !== prevDetailTargetId) {
+    setPrevDetailTargetId(detailTargetId);
+    setSearchQuery('');
+    setDebouncedFileSearchTerm('');
+    setFilterSegment('all');
+    setFileSort({ key: 'progress', order: 'asc' });
+    setDisplayLimit(5);
+  }
+
+  // テストファイル一覧の検索語は、入力が止まってから反映する（1文字ごとに通信しないため。メンバー検索と同じ）
+  const fileSearchTerm = searchQuery.trim();
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedFileSearchTerm(fileSearchTerm), FILE_SEARCH_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [fileSearchTerm]);
+
+  // テストファイル一覧の取得先（api-design.md 4-1）。検索・絞り込み・ソート・表示件数はすべてクエリで渡し、
+  // 画面側では並べ替えない（表示件数で絞った後に画面側で並べると、全体での順位とずれるため）。
+  // 一覧の取得中（404などで取り直している間）は取得しない。取り直した先頭が同じプロジェクトでも、
+  // 取得先がいったん空になるため、取り直しの後に必ず取得し直す
+  const fileListParams = new URLSearchParams({
+    status: filterSegment,
+    sort: fileSort.key,
+    order: fileSort.order,
+    limit: String(displayLimit),
+  });
+  if (debouncedFileSearchTerm) {
+    fileListParams.set('q', debouncedFileSearchTerm);
+  }
+  const filesPath = listStatus === 'loaded' && detailTargetId
+    ? `/projects/${detailTargetId}/test-files?${fileListParams.toString()}`
+    : '';
+  const filesKey = `${filesPath}#${filesAttempt}`;
+
+  // 条件が変わるたびに取り直す。古い条件の結果が後から届いても、捨てて新しい表示を上書きしない
+  useEffect(() => {
+    if (!filesPath) {
+      return;
+    }
+    let ignore = false;
+
+    apiGet<TestFileListResponse>(filesPath).then((result) => {
+      if (ignore) {
+        return;
+      }
+      if (result.ok) {
+        setFilesResult({ key: filesKey, data: result.data });
+      } else if (result.status === 401) {
+        router.replace('/login');
+      } else if (result.status === 404) {
+        reloadProjectListWithNotice(result.messages);
+      } else {
+        setFilesResult({ key: filesKey, data: null });
+      }
+    });
+
+    return () => {
+      ignore = true;
+    };
+  }, [filesPath, filesKey, router, reloadProjectListWithNotice]);
+
+  // 今の条件についての取得結果だけを使う（条件を変えた直後や再読み込み中は「読み込み中」になる）
+  const currentFilesResult = filesResult?.key === filesKey ? filesResult : null;
+  const isLoadingFiles = currentFilesResult === null;
+  const filesFetchError = currentFilesResult !== null && currentFilesResult.data === null;
+  const files = currentFilesResult?.data?.files ?? [];
+  const filesTotalCount = currentFilesResult?.data?.totalCount ?? 0;
+  // 検索・絞り込みで0件になったのか、そもそもファイルが無いのかを、空状態の文言で区別する（仕様書5-5）。
+  // プロジェクトにファイルが1件も無いとき（詳細の fileCount が0）は、条件をかけていても「ファイルが無い」方を出す
+  const hasFileConditions = debouncedFileSearchTerm !== '' || filterSegment !== 'all';
+  const isFileListFilteredEmpty = hasFileConditions && summary.fileCount > 0;
+  // 表示件数で絞られて、表示しきれていないファイルがあるか（「すべて表示」を出すかどうか）
+  const hasMoreFiles = displayLimit !== 'all' && filesTotalCount > files.length;
+
+  // 列見出しのクリックで、同じ列なら昇順⇔降順を切り替え、別の列なら昇順から始める（仕様書5-3）
+  const handleFileSortClick = (key: FileSortKey) => {
+    setFileSort(prev =>
+      prev.key === key
+        ? { key, order: prev.order === 'asc' ? 'desc' : 'asc' }
+        : { key, order: 'asc' },
+    );
+  };
+
+  // 列見出しの並び順の表示（並べ替えに使っている列だけ矢印を出す）
+  const sortAriaFor = (key: FileSortKey) =>
+    fileSort.key !== key ? undefined : fileSort.order === 'asc' ? 'ascending' : 'descending';
+  const sortMarkFor = (key: FileSortKey) =>
+    fileSort.key !== key ? '' : fileSort.order === 'asc' ? '▲' : '▼';
 
   // 終了済みメニューの外側クリックで閉じる
   useEffect(() => {
@@ -1090,28 +1214,7 @@ export default function DashboardPage() {
     setProjects(newProjects);
   };
 
-  const filteredFiles = files.filter((file: FileData) => {
-    if (searchQuery && !file.name.toLowerCase().includes(searchQuery.toLowerCase())) {
-      return false;
-    }
-    // progressがnullの場合は「すべて」のみ表示
-    if (file.progress === null) {
-      return filterSegment === 'all';
-    }
-    if (filterSegment === 'incomplete' && file.progress === 100) {
-      return false;
-    }
-    if (filterSegment === 'complete' && file.progress < 100) {
-      return false;
-    }
-    return true;
-  });
-
-  const displayedFiles = displayLimit === 'all'
-    ? filteredFiles
-    : filteredFiles.slice(0, displayLimit);
-
-  const displayLimitLabel = displayLimit === 'all' ? 'すべて' : `最新${displayLimit}件`;
+  const displayLimitLabel = displayLimit === 'all' ? 'すべて' : `${displayLimit}件`;
 
   // 閲覧者以外の場合、アクション列の幅を考慮した列幅
   const effectiveColumnWidths = canEdit
@@ -1119,39 +1222,41 @@ export default function DashboardPage() {
     : [40, 22, 19, 19];
 
   // 行メニュー
-  const handleRowMenuClick = (e: React.MouseEvent, file: FileData) => {
+  const handleRowMenuClick = (e: React.MouseEvent, file: TestFile) => {
     e.stopPropagation();
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     setRowMenuPosition({ top: rect.bottom + 4, left: rect.right - 160 });
     setRowMenuFile(rowMenuFile?.id === file.id ? null : file);
   };
 
+  // 登録取消は、結合5で4-4につなぐまでの仮の動き。更新履歴の有無は一覧APIに含まれないため、
+  // いったん常に確認モーダルを出す（取消不可のモーダルは、4-4の400で出す想定）
   const handleUnregisterClick = () => {
     if (!rowMenuFile) return;
     setRowMenuFile(null);
-
-    if (rowMenuFile.hasHistory) {
-      setCancelBlockedFile(rowMenuFile);
-    } else {
-      setCancelConfirmFile(rowMenuFile);
-    }
+    setCancelConfirmFile(rowMenuFile);
   };
 
+  // 仮の動き：サーバーには送らず、表示中の一覧からその行を外すだけ（取り直すと戻る）
   const confirmUnregister = () => {
     if (cancelConfirmFile) {
-      setFiles(prev => prev.filter(f => f.id !== cancelConfirmFile.id));
+      setFilesResult(prev =>
+        prev?.data
+          ? { ...prev, data: { ...prev.data, files: prev.data.files.filter(f => f.id !== cancelConfirmFile.id) } }
+          : prev,
+      );
     }
     setCancelConfirmFile(null);
   };
 
-  // ファイル読込モーダル
-  const existingFileNames = files.map(f => f.name);
+  // ファイル読込モーダル（結合5で4-2・4-3につなぐまでの仮の動き。新規／更新は、表示中の行だけで判定する）
+  const existingFileNames = files.map(f => f.fileName);
 
   const handleFilesSelected = (fileList: FileList) => {
     const selected = Array.from(fileList).map(f => {
       const validExt = /\.(xlsx|xls)$/i.test(f.name);
       const isUpdate = existingFileNames.includes(f.name);
-      const existingFile = files.find(ef => ef.name === f.name);
+      const existingFile = files.find(ef => ef.fileName === f.name);
 
       const item: UploadFile = {
         name: f.name,
@@ -1159,11 +1264,11 @@ export default function DashboardPage() {
       };
 
       if (item.status === 'update' && existingFile) {
-        const currentProgress = existingFile.progress ?? 0;
+        const currentProgress = existingFile.progressRate ?? 0;
         item.before = currentProgress;
         item.after = Math.min(100, currentProgress + 5 + Math.floor(Math.random() * 10));
-        item.updated = existingFile.updatedAt;
-        item.updater = existingFile.updatedBy;
+        item.updated = DATE_TIME_FORMAT_JST.format(new Date(existingFile.updatedAt));
+        item.updater = existingFile.lastUpdatedBy;
       }
       if (item.status === 'error') {
         item.reason = '対応外の拡張子です（.xlsx / .xls のみ対応）';
@@ -1645,14 +1750,14 @@ export default function DashboardPage() {
                     すべて
                   </div>
                   <div
-                    className={`${styles.segment} ${filterSegment === 'incomplete' ? styles.segmentActive : ''}`}
-                    onClick={() => setFilterSegment('incomplete')}
+                    className={`${styles.segment} ${filterSegment === 'hasIncomplete' ? styles.segmentActive : ''}`}
+                    onClick={() => setFilterSegment('hasIncomplete')}
                   >
                     未実施あり
                   </div>
                   <div
-                    className={`${styles.segment} ${filterSegment === 'complete' ? styles.segmentActive : ''}`}
-                    onClick={() => setFilterSegment('complete')}
+                    className={`${styles.segment} ${filterSegment === 'allComplete' ? styles.segmentActive : ''}`}
+                    onClick={() => setFilterSegment('allComplete')}
                   >
                     全件実施済み
                   </div>
@@ -1670,13 +1775,13 @@ export default function DashboardPage() {
                         className={styles.sortMenuItem}
                         onClick={() => { setDisplayLimit(5); setIsSortMenuOpen(false); }}
                       >
-                        最新5件
+                        5件
                       </div>
                       <div
                         className={styles.sortMenuItem}
                         onClick={() => { setDisplayLimit(10); setIsSortMenuOpen(false); }}
                       >
-                        最新10件
+                        10件
                       </div>
                       <div
                         className={styles.sortMenuItem}
@@ -1689,94 +1794,139 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              {displayedFiles.length > 0 ? (
-                <table className={styles.filesTable} ref={tableRef}>
-                  <thead>
-                    <tr>
-                      <th style={{ width: `${effectiveColumnWidths[0]}%` }}>
-                        ファイル名
-                        <div
-                          className={styles.resizeHandle}
-                          onMouseDown={(e) => handleResizeStart(0, e)}
-                        />
-                      </th>
-                      <th style={{ width: `${effectiveColumnWidths[1]}%` }}>
-                        進捗
-                        <div
-                          className={styles.resizeHandle}
-                          onMouseDown={(e) => handleResizeStart(1, e)}
-                        />
-                      </th>
-                      <th style={{ width: `${effectiveColumnWidths[2]}%` }}>
-                        最終更新
-                        <div
-                          className={styles.resizeHandle}
-                          onMouseDown={(e) => handleResizeStart(2, e)}
-                        />
-                      </th>
-                      <th style={{ width: `${effectiveColumnWidths[3]}%` }}>
-                        最終更新者
-                        {canEdit && (
+              {isLoadingFiles ? (
+                <div className={`${styles.loadingCard} ${styles.sectionState}`}>
+                  <div className={styles.spinner}></div>
+                  <div className={styles.loadingText}>読み込み中…</div>
+                </div>
+              ) : filesFetchError ? (
+                <div className={`${styles.errorCard} ${styles.sectionState}`}>
+                  <div className={styles.errorIcon}>!</div>
+                  <div className={styles.errorTitle}>テストファイルを取得できませんでした</div>
+                  <div className={styles.errorDesc}>{NETWORK_ERROR_MESSAGE}</div>
+                  <button
+                    className={styles.btnRetry}
+                    onClick={() => setFilesAttempt(attempt => attempt + 1)}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="23 4 23 10 17 10"></polyline>
+                      <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                    </svg>
+                    再読み込み
+                  </button>
+                </div>
+              ) : files.length > 0 ? (
+                <>
+                  <table className={styles.filesTable} ref={tableRef}>
+                    <thead>
+                      <tr>
+                        {/* 並べ替えは見出しの中のボタンで受ける。見出し全体で受けると、
+                            列幅を変えるつまみ（resizeHandle）を離したときのクリックでも並びが変わってしまうため */}
+                        <th style={{ width: `${effectiveColumnWidths[0]}%` }} aria-sort={sortAriaFor('name')}>
+                          <button className={styles.sortHeader} onClick={() => handleFileSortClick('name')}>
+                            ファイル名<span className={styles.sortMark}>{sortMarkFor('name')}</span>
+                          </button>
                           <div
                             className={styles.resizeHandle}
-                            onMouseDown={(e) => handleResizeStart(3, e)}
+                            onMouseDown={(e) => handleResizeStart(0, e)}
                           />
-                        )}
-                      </th>
-                      {canEdit && (
-                        <th style={{ width: `${effectiveColumnWidths[4]}%` }}></th>
-                      )}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {displayedFiles.map(file => (
-                      <tr key={file.id}>
-                        <td>
-                          <div className={styles.fileCell}>
-                            <div className={styles.fileName}>{file.name}</div>
-                          </div>
-                        </td>
-                        <td>
-                          <div className={styles.progWrap}>
-                            {file.progress !== null ? (
-                              <>
-                                <div className={styles.progBar}>
-                                  <span style={{
-                                    width: `${file.progress}%`,
-                                    background: file.progress === 0 ? 'var(--border)' : undefined
-                                  }}></span>
-                                </div>
-                                <div
-                                  className={styles.progPct}
-                                  style={{ color: file.progress === 0 ? 'var(--text-faint)' : undefined }}
-                                >
-                                  {file.progress}%
-                                </div>
-                              </>
-                            ) : (
-                              <span className={styles.progDash}>—</span>
-                            )}
-                          </div>
-                        </td>
-                        <td><div className={styles.metaText}>{file.updatedAt}</div></td>
-                        <td><div className={styles.metaName}>{file.updatedBy}</div></td>
-                        {canEdit && (
-                          <td>
+                        </th>
+                        <th style={{ width: `${effectiveColumnWidths[1]}%` }} aria-sort={sortAriaFor('progress')}>
+                          <button className={styles.sortHeader} onClick={() => handleFileSortClick('progress')}>
+                            進捗<span className={styles.sortMark}>{sortMarkFor('progress')}</span>
+                          </button>
+                          <div
+                            className={styles.resizeHandle}
+                            onMouseDown={(e) => handleResizeStart(1, e)}
+                          />
+                        </th>
+                        <th style={{ width: `${effectiveColumnWidths[2]}%` }} aria-sort={sortAriaFor('updatedAt')}>
+                          <button className={styles.sortHeader} onClick={() => handleFileSortClick('updatedAt')}>
+                            最終更新<span className={styles.sortMark}>{sortMarkFor('updatedAt')}</span>
+                          </button>
+                          <div
+                            className={styles.resizeHandle}
+                            onMouseDown={(e) => handleResizeStart(2, e)}
+                          />
+                        </th>
+                        <th style={{ width: `${effectiveColumnWidths[3]}%` }}>
+                          最終更新者
+                          {canEdit && (
                             <div
-                              className={styles.actionDots}
-                              onClick={(e) => handleRowMenuClick(e, file)}
-                            >
-                              ⋯
-                            </div>
-                          </td>
+                              className={styles.resizeHandle}
+                              onMouseDown={(e) => handleResizeStart(3, e)}
+                            />
+                          )}
+                        </th>
+                        {canEdit && (
+                          <th style={{ width: `${effectiveColumnWidths[4]}%` }}></th>
                         )}
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {files.map(file => (
+                        <tr key={file.id}>
+                          <td>
+                            <div className={styles.fileCell}>
+                              <div className={styles.fileName}>{file.fileName}</div>
+                            </div>
+                          </td>
+                          <td>
+                            <div className={styles.progWrap}>
+                              {/* 対象テストケース0件（notApplicable）は進捗率が出せないため「—」（全体進捗カードと同じ） */}
+                              {file.status !== 'notApplicable' && file.progressRate !== null ? (
+                                <>
+                                  <div className={styles.progBar}>
+                                    <span style={{
+                                      width: `${file.progressRate}%`,
+                                      background: file.progressRate === 0 ? 'var(--border)' : undefined
+                                    }}></span>
+                                  </div>
+                                  {/* 進捗率はAPIの値（小数第1位まで）をそのまま表示する（全体進捗カードと同じ） */}
+                                  <div
+                                    className={styles.progPct}
+                                    style={{ color: file.progressRate === 0 ? 'var(--text-faint)' : undefined }}
+                                  >
+                                    {file.progressRate}%
+                                  </div>
+                                </>
+                              ) : (
+                                <span className={styles.progDash}>—</span>
+                              )}
+                            </div>
+                          </td>
+                          <td>
+                            <div className={styles.metaText}>
+                              {DATE_TIME_FORMAT_JST.format(new Date(file.updatedAt))}
+                            </div>
+                          </td>
+                          <td><div className={styles.metaName}>{file.lastUpdatedBy}</div></td>
+                          {canEdit && (
+                            <td>
+                              <div
+                                className={styles.actionDots}
+                                onClick={(e) => handleRowMenuClick(e, file)}
+                              >
+                                ⋯
+                              </div>
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {/* 表示件数で絞られて表示しきれていないときだけ出す（件数はAPIの totalCount） */}
+                  {hasMoreFiles && (
+                    <div className={styles.filesShowAll}>
+                      <button className={styles.filesShowAllButton} onClick={() => setDisplayLimit('all')}>
+                        すべて表示（全{filesTotalCount}件）
+                      </button>
+                    </div>
+                  )}
+                </>
               ) : (
                 <div className={styles.filesEmpty}>
-                  {searchQuery ? '検索条件に一致するファイルがありません' : '登録されているテストファイルはありません'}
+                  {isFileListFilteredEmpty ? '検索条件に一致するファイルがありません' : '登録されているテストファイルはありません'}
                 </div>
               )}
             </div>
@@ -2034,7 +2184,7 @@ export default function DashboardPage() {
             <div className={styles.modalTitle}>登録を取り消しますか？</div>
             <p className={styles.modalDesc}>この操作は取り消すことができません。よろしいですか？</p>
             <div className={styles.modalTarget}>
-              対象ファイル: <b>{cancelConfirmFile.name}</b>
+              対象ファイル: <b>{cancelConfirmFile.fileName}</b>
             </div>
             <div className={styles.modalActions}>
               <button
@@ -2064,7 +2214,7 @@ export default function DashboardPage() {
             <div className={styles.modalTitle}>登録を取り消せません</div>
             <p className={styles.modalDesc}>このファイルには更新履歴が存在するため、登録を取り消せません。</p>
             <div className={styles.modalTarget}>
-              対象ファイル: <b>{cancelBlockedFile.name}</b>
+              対象ファイル: <b>{cancelBlockedFile.fileName}</b>
             </div>
             <div className={styles.modalActions}>
               <button

@@ -620,6 +620,27 @@
   position: relative;
 }
 
+/* 並べ替えできる列見出し。見た目は通常の見出しのまま、押せることだけ分かるようにする */
+.sortHeader {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.sortHeader:hover {
+  color: var(--text);
+}
+
+.sortMark {
+  font-size: 9px;
+}
+
 .resizeHandle {
   position: absolute;
   top: 0;
@@ -696,7 +717,9 @@
   font-family: var(--font-mono);
   font-size: 12.5px;
   color: var(--text-muted);
-  width: 32px;
+  /* 「33.3%」のような小数第1位までの値が収まる幅。列が狭いときはバーの方を縮める */
+  width: 40px;
+  flex-shrink: 0;
 }
 
 .progDash {
@@ -731,6 +754,27 @@
   font-size: 13.5px;
   background: var(--surface-2);
   border-radius: 10px;
+}
+
+.filesShowAll {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.filesShowAllButton {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.filesShowAllButton:hover {
+  color: var(--accent);
 }
 
 /* ===== プロジェクト設定 ===== */
