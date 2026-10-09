@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, useLayoutEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { apiDelete, apiGet, apiPatch, apiPost, apiPostForm, NETWORK_ERROR_MESSAGE } from '@/lib/api';
 import Toast from '@/components/Toast';
@@ -392,7 +392,9 @@ export default function DashboardPage() {
 
   // 行メニュー（登録取消用）
   const [rowMenuFile, setRowMenuFile] = useState<TestFile | null>(null);
-  const [rowMenuPosition, setRowMenuPosition] = useState({ top: 0, left: 0 });
+  // buttonTop は「︙」ボタンの上端。下に余白がなく、ボタンの上側に開き直すときに使う
+  const [rowMenuPosition, setRowMenuPosition] = useState({ top: 0, left: 0, buttonTop: 0 });
+  const rowMenuRef = useRef<HTMLDivElement>(null);
   const [cancelConfirmFile, setCancelConfirmFile] = useState<TestFile | null>(null);
   const [cancelBlockedFile, setCancelBlockedFile] = useState<TestFile | null>(null);
   const [isUnregistering, setIsUnregistering] = useState(false);
@@ -1383,9 +1385,22 @@ export default function DashboardPage() {
   const handleRowMenuClick = (e: React.MouseEvent, file: TestFile) => {
     e.stopPropagation();
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    setRowMenuPosition({ top: rect.bottom + 4, left: rect.right - 160 });
+    setRowMenuPosition({ top: rect.bottom + 4, left: rect.right - 160, buttonTop: rect.top });
     setRowMenuFile(rowMenuFile?.id === file.id ? null : file);
   };
+
+  // 行メニューは、まずボタンの下に開く。下端に近い行で、下に収まらないときは、ボタンの上側に開き直す。
+  // メニューの高さは表示してみないと分からないため、描画後・画面に出る前（useLayoutEffect）に測る
+  useLayoutEffect(() => {
+    const menu = rowMenuRef.current;
+    if (!menu) {
+      return;
+    }
+    const height = menu.offsetHeight;
+    if (rowMenuPosition.top + height > window.innerHeight) {
+      setRowMenuPosition(prev => ({ ...prev, top: Math.max(4, prev.buttonTop - 4 - height) }));
+    }
+  }, [rowMenuFile, rowMenuPosition]);
 
   // 更新履歴の有無は一覧APIに含まれないため、取り消せるかは押す前には分けず、4-4の400で判断する
   const handleUnregisterClick = () => {
@@ -2432,6 +2447,7 @@ export default function DashboardPage() {
       {/* ===== 行メニュー（管理者・テスターのみ） ===== */}
       {rowMenuFile && canEdit && (
         <div
+          ref={rowMenuRef}
           className={styles.rowMenu}
           style={{ top: rowMenuPosition.top, left: rowMenuPosition.left }}
         >
