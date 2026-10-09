@@ -249,13 +249,7 @@ export class TestFilesService {
 
     const successCount = results.filter((r) => r.operation !== 'error').length;
     const errorCount = results.filter((r) => r.operation === 'error').length;
-
-    // 全ファイルがエラーの場合は400
-    if (successCount === 0 && errorCount > 0) {
-      throw new BadRequestException('すべてのファイルがエラーのため読み込めません。');
-    }
-
-    return {
+    const response: PreviewResponse = {
       files: results,
       summary: {
         totalCount: results.length,
@@ -263,6 +257,18 @@ export class TestFilesService {
         successCount,
       },
     };
+
+    // 全ファイルがエラーの場合は400。画面がファイルごとの理由を出せるよう、200と同じ files と summary も含める
+    if (successCount === 0 && errorCount > 0) {
+      throw new BadRequestException({
+        statusCode: 400,
+        error: 'Bad Request',
+        message: 'すべてのファイルがエラーのため読み込めません。',
+        ...response,
+      });
+    }
+
+    return response;
   }
 
   /**

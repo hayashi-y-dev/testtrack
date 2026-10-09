@@ -14,10 +14,10 @@ import {
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
-import { FilesInterceptor } from '@nestjs/platform-express';
 import type { Request } from 'express';
 import type {} from 'multer';
 import { TestFilesService } from './test-files.service.js';
+import { TestFilesUploadInterceptor } from './test-files-upload.interceptor.js';
 import { TestFilesQueryDto } from './dto/test-files-query.dto.js';
 import { CommitFilesDto } from './dto/commit-files.dto.js';
 import { AuthGuard } from '../auth/guards/auth.guard.js';
@@ -44,8 +44,7 @@ export class TestFilesController {
 
   @Post('preview')
   @HttpCode(HttpStatus.OK)
-  // ブラウザは日本語のファイル名をUTF-8のまま送るため、utf8として読む（multerの既定はlatin1で文字化けする）
-  @UseInterceptors(FilesInterceptor('files', 50, { defParamCharset: 'utf8' }))
+  @UseInterceptors(TestFilesUploadInterceptor)
   async preview(
     @Param('projectId') projectId: string,
     @UploadedFiles() files: Express.Multer.File[],

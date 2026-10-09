@@ -16,6 +16,10 @@ const NO_TEST_SHEET_MESSAGE =
 const HAS_UPDATE_HISTORY_MESSAGE =
   'このファイルには更新履歴が存在するため、登録を取り消せません。';
 const FILE_NOT_FOUND_MESSAGE = '指定されたファイルが見つかりません。';
+const ALL_FILES_ERROR_MESSAGE = 'すべてのファイルがエラーのため読み込めません。';
+const TOO_MANY_FILES_MESSAGE = '一度に読み込めるファイルは20件までです。';
+const FILE_TOO_LARGE_MESSAGE =
+  '1ファイルのサイズは5MBまでです。5MBを超えるファイルが含まれています。';
 
 const PARSED_DATA = {
   targetCount: 4,
@@ -528,6 +532,74 @@ describe('テストファイルAPI (e2e)', () => {
       await createFileViaApi(name);
 
       expect(await countTestFiles(name)).toBe(1);
+    });
+  });
+
+  describe('POST /projects/:id/test-files/preview - 全件エラーとアップロードの上限', () => {
+    const MB = 1024 * 1024;
+    const simpleSheet = (): Buffer =>
+      toXlsxBuffer([
+        ['No', '結果'],
+        [1, 'OK'],
+      ]);
+
+    it('全ファイルがエラーのときは400で、200と同じ形の files と summary も返す', async () => {
+      const res = await agent
+        .post(previewUrl())
+        .attach('files', Buffer.from('text'), 'memo.txt')
+        .attach('files', toXlsxBuffer([['ID', '項目']]), 'invalid_format.xlsx')
+        .expect(400);
+
+      expect(res.body.message).toBe(ALL_FILES_ERROR_MESSAGE);
+      expect(res.body.summary).toEqual({ totalCount: 2, errorCount: 2, successCount: 0 });
+      expect(res.body.files).toEqual([
+        {
+          fileName: 'memo.txt',
+          operation: 'error',
+          errorMessage: expect.stringContaining('対応していないファイル形式です。'),
+        },
+        { fileName: 'invalid_format.xlsx', operation: 'error', errorMessage: NO_TEST_SHEET_MESSAGE },
+      ]);
+    });
+
+    it('ファイルは20件まで受け付ける', async () => {
+      let req = agent.post(previewUrl());
+      for (let i = 0; i < 20; i++) {
+        req = req.attach('files', simpleSheet(), uniqueFileName());
+      }
+      const res = await req.expect(200);
+
+      expect(res.body.files).toHaveLength(20);
+    });
+
+    it('21件のときは400で、件数の上限を日本語で返す', async () => {
+      let req = agent.post(previewUrl());
+      for (let i = 0; i < 21; i++) {
+        req = req.attach('files', simpleSheet(), uniqueFileName());
+      }
+      const res = await req.expect(400);
+
+      expect(res.body.message).toBe(TOO_MANY_FILES_MESSAGE);
+    });
+
+    it('1ファイルが5MBちょうどなら、サイズの上限では断らない', async () => {
+      const res = await agent
+        .post(previewUrl())
+        .attach('files', Buffer.alloc(5 * MB), 'just_5mb.pdf')
+        .attach('files', simpleSheet(), uniqueFileName())
+        .expect(200);
+
+      expect(res.body.files[0]).toMatchObject({ fileName: 'just_5mb.pdf', operation: 'error' });
+    });
+
+    it('1ファイルが5MBを超えると400で、サイズの上限を日本語で返す', async () => {
+      const res = await agent
+        .post(previewUrl())
+        .attach('files', Buffer.alloc(5 * MB + 1), 'over_5mb.pdf')
+        .attach('files', simpleSheet(), uniqueFileName())
+        .expect(400);
+
+      expect(res.body.message).toBe(FILE_TOO_LARGE_MESSAGE);
     });
   });
 

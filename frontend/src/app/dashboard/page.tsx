@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { apiDelete, apiGet, apiPatch, apiPost, NETWORK_ERROR_MESSAGE } from '@/lib/api';
+import { apiDelete, apiGet, apiPatch, apiPost, apiPostForm, NETWORK_ERROR_MESSAGE } from '@/lib/api';
 import Toast from '@/components/Toast';
 import styles from './dashboard.module.css';
 
@@ -148,6 +148,50 @@ const DATE_TIME_FORMAT_JST = new Intl.DateTimeFormat('ja-JP', {
 // テストファイル一覧の検索で、入力が止まってから取得するまでの待ち時間（メンバー検索と同じ）
 const FILE_SEARCH_DELAY_MS = 300;
 
+// 全件エラーのときの確認画面の要約（仕様書6-6）
+const ALL_FILES_ERROR_MESSAGE = 'すべてのファイルがエラーのため読み込めません。';
+
+// アップロードの上限（仕様書FILE-04）。1ファイル・件数はバックエンドと同じ値、合計はNext.jsの転送の既定値
+const MAX_UPLOAD_FILES = 20;
+const MAX_UPLOAD_FILE_SIZE = 5 * 1024 * 1024;
+const MAX_UPLOAD_TOTAL_SIZE = 10 * 1024 * 1024;
+
+const formatMegabytes = (bytes: number): string => `${(bytes / 1024 / 1024).toFixed(1)}MB`;
+
+// 送る前に件数・サイズを確かめ、上限を超えていれば知らせる文言を返す（超えていなければ null）。
+// 合計が10MBを超えると、転送が30秒待ったあとに失敗するため、送らずにすぐ知らせる
+function validateUpload(files: File[], bodySize: number): string | null {
+  if (files.length > MAX_UPLOAD_FILES) {
+    return `一度に読み込めるファイルは${MAX_UPLOAD_FILES}件までです（${files.length}件選択されています）。`;
+  }
+  const tooLarge = files.filter(f => f.size > MAX_UPLOAD_FILE_SIZE);
+  if (tooLarge.length > 0) {
+    const names = tooLarge.slice(0, 3).map(f => `${f.name}（${formatMegabytes(f.size)}）`).join('、');
+    const rest = tooLarge.length > 3 ? `ほか${tooLarge.length - 3}件` : '';
+    return `1ファイルのサイズは5MBまでです。5MBを超えるファイル: ${names}${rest}`;
+  }
+  if (bodySize > MAX_UPLOAD_TOTAL_SIZE) {
+    const total = files.reduce((sum, f) => sum + f.size, 0);
+    return `一度に読み込める合計サイズは10MBまでです（選択したファイルの合計: ${formatMegabytes(total)}）。`;
+  }
+  return null;
+}
+
+// 4-2のレスポンス（200、または全件エラーの400）の本文か。400でも files があれば確認画面を出すために使う
+function isPreviewResponse(body: unknown): body is PreviewResponse {
+  return typeof body === 'object' && body !== null && 'files' in body && Array.isArray(body.files);
+}
+
+// 進捗率の表示。対象テストケース0件（null）は「—」（一覧と同じ）
+function formatProgress(rate: number | null | undefined): string {
+  return rate === null || rate === undefined ? '—' : `${rate}%`;
+}
+
+// ファイル名の自然順（「テスト_2」→「テスト_10」。一覧APIの第2ソートと同じ比べ方）
+function compareFileName(a: string, b: string): number {
+  return a.localeCompare(b, 'ja', { numeric: true });
+}
+
 const PROJECT_NAME_MAX_LENGTH = 50;
 
 // 詳細APIのレスポンスを、画面で使う形（ロールは表示名）にする
@@ -207,15 +251,38 @@ type FileStatusFilter = 'all' | 'hasIncomplete' | 'allComplete';
 type FileSortKey = 'name' | 'progress' | 'updatedAt';
 type FileDisplayLimit = 5 | 10 | 'all';
 
-type UploadFile = {
-  name: string;
-  status: 'new' | 'update' | 'error';
-  before?: number;
-  after?: number;
-  updated?: string;
-  updater?: string;
-  reason?: string;
-  resultStatus?: 'success' | 'conflict' | 'error';
+// POST /projects/:id/test-files/preview のレスポンスの1件（api-design.md 4-2）。
+// parsedData・baseVersion・existingFileId は、実行（4-3）でそのまま送り返す
+type PreviewFile = {
+  fileName: string;
+  operation: 'create' | 'update' | 'error';
+  existingFileId?: string;
+  baseVersion?: number;
+  currentProgressRate?: number | null;
+  newProgressRate?: number | null;
+  updatedAt?: string;
+  lastUpdatedBy?: string;
+  parsedData?: {
+    targetCount: number;
+    okCount: number;
+    ngCount: number;
+    notRunCount: number;
+    excludedCount: number;
+  };
+  errorMessage?: string;
+};
+
+type PreviewResponse = {
+  files: PreviewFile[];
+  summary: { totalCount: number; errorCount: number; successCount: number };
+};
+
+// 読み込み結果（結合5dで4-3につなぐまでの仮の形）
+type UploadResult = {
+  fileName: string;
+  operation: PreviewFile['operation'];
+  resultStatus: 'success' | 'conflict' | 'error';
+  errorMessage?: string;
 };
 
 export default function DashboardPage() {
@@ -333,7 +400,10 @@ export default function DashboardPage() {
   // ファイル読込モーダル
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [uploadView, setUploadView] = useState<'select' | 'confirm' | 'result'>('select');
-  const [uploadFiles, setUploadFiles] = useState<UploadFile[]>([]);
+  // 確認画面に出す解析結果（ファイル名の自然順）。全件エラーの400では、ファイル名だけのエラー行になる
+  const [previewFiles, setPreviewFiles] = useState<PreviewFile[]>([]);
+  const [isPreviewing, setIsPreviewing] = useState(false);
+  const [uploadResults, setUploadResults] = useState<UploadResult[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -510,6 +580,11 @@ export default function DashboardPage() {
     // 登録取消のモーダルは、前のプロジェクトのファイルを指しているため閉じる
     setCancelConfirmFile(null);
     setCancelBlockedFile(null);
+    // ファイル読込のモーダルも、前のプロジェクトへの読込になるため閉じる
+    setIsUploadModalOpen(false);
+    setUploadView('select');
+    setPreviewFiles([]);
+    setUploadResults([]);
   }
 
   // 表示中のプロジェクト。登録取消の結果が届いたとき、通信中に切り替わっていないかを確かめるために使う
@@ -1395,62 +1470,107 @@ export default function DashboardPage() {
     }
   };
 
-  // ファイル読込モーダル（結合5で4-2・4-3につなぐまでの仮の動き。新規／更新は、表示中の行だけで判定する）
-  const existingFileNames = files.map(f => f.fileName);
-
-  const handleFilesSelected = (fileList: FileList) => {
-    const selected = Array.from(fileList).map(f => {
-      const validExt = /\.(xlsx|xls)$/i.test(f.name);
-      const isUpdate = existingFileNames.includes(f.name);
-      const existingFile = files.find(ef => ef.fileName === f.name);
-
-      const item: UploadFile = {
-        name: f.name,
-        status: !validExt ? 'error' : (isUpdate ? 'update' : 'new'),
-      };
-
-      if (item.status === 'update' && existingFile) {
-        const currentProgress = existingFile.progressRate ?? 0;
-        item.before = currentProgress;
-        item.after = Math.min(100, currentProgress + 5 + Math.floor(Math.random() * 10));
-        item.updated = DATE_TIME_FORMAT_JST.format(new Date(existingFile.updatedAt));
-        item.updater = existingFile.lastUpdatedBy;
-      }
-      if (item.status === 'error') {
-        item.reason = '対応外の拡張子です（.xlsx / .xls のみ対応）';
-      }
-      return item;
-    });
-
-    selected.sort((a, b) => a.name.localeCompare(b.name, 'ja', { numeric: true, sensitivity: 'base' }));
-    setUploadFiles(selected);
-    setUploadView('confirm');
-  };
-
-  const executeImport = () => {
-    let conflictAssigned = false;
-    const results = uploadFiles.map(f => {
-      if (f.status === 'error') {
-        return { ...f, resultStatus: 'error' as const };
-      }
-      if (f.status === 'update' && !conflictAssigned && f.name === 'EC機能テスト仕様書_v2.3.xlsx') {
-        conflictAssigned = true;
-        return { ...f, resultStatus: 'conflict' as const };
-      }
-      return { ...f, resultStatus: 'success' as const };
-    });
-
-    setUploadFiles(results);
-    setUploadView('result');
+  // 選択ビューに戻す（選び直し）。同じファイルを選び直しても onChange が動くよう、入力欄の値も空にする
+  const resetUploadSelection = () => {
+    setUploadView('select');
+    setPreviewFiles([]);
+    setUploadResults([]);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
   };
 
   const closeUploadModal = () => {
     setIsUploadModalOpen(false);
-    setUploadView('select');
-    setUploadFiles([]);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
+    resetUploadSelection();
+  };
+
+  // Excel読込プレビュー（仕様書6-4〜6-7、api-design.md 4-2）。選んだファイルをまとめて送り、
+  // 解析結果で確認画面を出す。新規／更新の判定と進捗の計算はサーバーが行う
+  const handleFilesSelected = async (fileList: FileList) => {
+    if (isPreviewing || !detailTargetId) {
+      return;
     }
+    const projectId = detailTargetId;
+    const selected = Array.from(fileList);
+    const form = new FormData();
+    for (const file of selected) {
+      form.append('files', file);
+    }
+
+    setIsPreviewing(true);
+    // Next.jsの上限は区切り文字も含めた本文全体にかかるため、実際に送る本文の大きさで確かめる
+    const bodySize = (await new Response(form).blob()).size;
+    const limitError = validateUpload(selected, bodySize);
+    if (limitError) {
+      setIsPreviewing(false);
+      resetUploadSelection();
+      setToast({ id: Date.now(), message: limitError });
+      return;
+    }
+    const result = await apiPostForm<PreviewResponse>(`/projects/${projectId}/test-files/preview`, form);
+
+    if (!result.ok && result.status === 401) {
+      // 遷移が終わるまで、解析中の表示のままにする
+      router.replace('/login');
+      return;
+    }
+    setIsPreviewing(false);
+    // 通信中に別のプロジェクトへ切り替わっていたら、前のプロジェクトの結果で今の画面を書き換えない
+    // （切り替えた時点でモーダルは閉じている）
+    if (detailTargetIdRef.current !== projectId) {
+      return;
+    }
+
+    const showConfirm = (preview: PreviewResponse) => {
+      setPreviewFiles([...preview.files].sort((a, b) => compareFileName(a.fileName, b.fileName)));
+      setUploadView('confirm');
+    };
+    if (result.ok) {
+      showConfirm(result.data);
+      return;
+    }
+    // 全ファイルがエラーのときは400だが、本文に200と同じ files（ファイルごとの理由）が入っている
+    if (result.status === 400 && isPreviewResponse(result.body)) {
+      showConfirm(result.body);
+      return;
+    }
+
+    const message = result.messages[0];
+    if (result.status === 403) {
+      // 閲覧者になっていた、終了済みになっていた場合など。詳細を取り直して最新のロール・状態に合わせる
+      closeUploadModal();
+      setToast({ id: Date.now(), message: message ?? 'この操作を行う権限がありません。' });
+      setDetailAttempt(attempt => attempt + 1);
+    } else if (result.status === 404) {
+      closeUploadModal();
+      reloadProjectListWithNotice(result.messages);
+    } else {
+      // モーダルは閉じず、選び直せるようにする。400（アップロードの上限など）はAPIの文言を出す
+      resetUploadSelection();
+      setToast({
+        id: Date.now(),
+        message: (result.status === 400 || result.status === 500) && message ? message : NETWORK_ERROR_MESSAGE,
+      });
+    }
+  };
+
+  // 読み込みの実行は、結合5dで4-3につなぐまでの仮の動き
+  const executeImport = () => {
+    let conflictAssigned = false;
+    const results: UploadResult[] = previewFiles.map(f => {
+      if (f.operation === 'error') {
+        return { fileName: f.fileName, operation: f.operation, resultStatus: 'error', errorMessage: f.errorMessage };
+      }
+      if (f.operation === 'update' && !conflictAssigned && f.fileName === 'EC機能テスト仕様書_v2.3.xlsx') {
+        conflictAssigned = true;
+        return { fileName: f.fileName, operation: f.operation, resultStatus: 'conflict' };
+      }
+      return { fileName: f.fileName, operation: f.operation, resultStatus: 'success' };
+    });
+
+    setUploadResults(results);
+    setUploadView('result');
   };
 
   const handleLogout = async () => {
@@ -1596,10 +1716,10 @@ export default function DashboardPage() {
     setIsArchivingProject(false);
   };
 
-  const uploadErrorCount = uploadFiles.filter(f => f.status === 'error').length;
-  const uploadValidCount = uploadFiles.length - uploadErrorCount;
-  const uploadSuccessCount = uploadFiles.filter(f => f.resultStatus === 'success').length;
-  const uploadFailCount = uploadFiles.length - uploadSuccessCount;
+  const uploadErrorCount = previewFiles.filter(f => f.operation === 'error').length;
+  const uploadValidCount = previewFiles.length - uploadErrorCount;
+  const uploadSuccessCount = uploadResults.filter(f => f.resultStatus === 'success').length;
+  const uploadFailCount = uploadResults.length - uploadSuccessCount;
 
   // ロール表示名
   const roleLabel = currentRole === '管理者' ? '管理者ダッシュボード'
@@ -2641,7 +2761,12 @@ export default function DashboardPage() {
       {isUploadModalOpen && canEdit && (
         <div
           className={styles.modalOverlay}
-          onClick={closeUploadModal}
+          onClick={() => {
+            // 解析中は閉じない（結果を受け取れる状態のまま待つ）
+            if (!isPreviewing) {
+              closeUploadModal();
+            }
+          }}
         >
           <div
             className={`${styles.modalBox} ${styles.modalBoxWide}`}
@@ -2652,6 +2777,12 @@ export default function DashboardPage() {
               <div>
                 <div className={styles.modalTitle}>テストファイルを読み込む</div>
 
+                {isPreviewing ? (
+                  <div className={`${styles.loadingCard} ${styles.sectionState}`}>
+                    <div className={styles.spinner}></div>
+                    <div className={styles.loadingText}>ファイルを解析しています…</div>
+                  </div>
+                ) : (
                 <div
                   className={`${styles.dropzone} ${isDragOver ? styles.dropzoneDragover : ''}`}
                   onClick={() => fileInputRef.current?.click()}
@@ -2680,6 +2811,7 @@ export default function DashboardPage() {
                   </div>
                   <div className={styles.dropzoneSub}>複数ファイルを一括で選択できます</div>
                 </div>
+                )}
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -2698,7 +2830,7 @@ export default function DashboardPage() {
                 </div>
 
                 <div className={styles.modalActions}>
-                  <button className={styles.btnMini} onClick={closeUploadModal}>
+                  <button className={styles.btnMini} onClick={closeUploadModal} disabled={isPreviewing}>
                     キャンセル
                   </button>
                 </div>
@@ -2712,32 +2844,38 @@ export default function DashboardPage() {
                 <p className={styles.modalDesc}>以下の内容でファイルを読み込みます。</p>
 
                 <div className={styles.confirmList}>
-                  {uploadFiles.map((f, i) => (
+                  {previewFiles.map((f, i) => (
                     <div key={i} className={styles.confirmRow}>
                       <div className={styles.confirmRowTop}>
-                        <div className={styles.confirmFileName}>{f.name}</div>
-                        {f.status === 'new' && (
+                        <div className={styles.confirmFileName}>{f.fileName}</div>
+                        {f.operation === 'create' && (
                           <span className={`${styles.confirmBadge} ${styles.confirmBadgeNew}`}>新規</span>
                         )}
-                        {f.status === 'update' && (
+                        {f.operation === 'update' && (
                           <span className={`${styles.confirmBadge} ${styles.confirmBadgeUpdate}`}>更新</span>
                         )}
-                        {f.status === 'error' && (
+                        {f.operation === 'error' && (
                           <span className={`${styles.confirmBadge} ${styles.confirmBadgeError}`}>エラー</span>
                         )}
                       </div>
-                      {f.status === 'new' && (
-                        <div className={styles.confirmDetail}>新規ファイルとして登録されます</div>
-                      )}
-                      {f.status === 'update' && (
+                      {f.operation === 'create' && (
                         <div className={styles.confirmDetailRow}>
-                          <span>進捗: {f.before}% → {f.after}%</span>
+                          <span>進捗: {formatProgress(f.newProgressRate)}</span>
                           <span className={styles.confirmSep}></span>
-                          <span>最終更新: {f.updated} {f.updater}</span>
+                          <span>新規ファイルとして登録されます</span>
                         </div>
                       )}
-                      {f.status === 'error' && (
-                        <div className={styles.confirmErrorReason}>{f.reason}</div>
+                      {f.operation === 'update' && (
+                        <div className={styles.confirmDetailRow}>
+                          <span>進捗: {formatProgress(f.currentProgressRate)} → {formatProgress(f.newProgressRate)}</span>
+                          <span className={styles.confirmSep}></span>
+                          <span>
+                            最終更新: {f.updatedAt ? DATE_TIME_FORMAT_JST.format(new Date(f.updatedAt)) : '—'} {f.lastUpdatedBy}
+                          </span>
+                        </div>
+                      )}
+                      {f.operation === 'error' && f.errorMessage && (
+                        <div className={styles.confirmErrorReason}>{f.errorMessage}</div>
                       )}
                     </div>
                   ))}
@@ -2745,7 +2883,7 @@ export default function DashboardPage() {
 
                 {uploadErrorCount > 0 && uploadValidCount === 0 && (
                   <div className={`${styles.confirmSummary} ${styles.confirmSummaryAllError}`}>
-                    すべてのファイルがエラーのため読み込めません。
+                    {ALL_FILES_ERROR_MESSAGE}
                   </div>
                 )}
                 {uploadErrorCount > 0 && uploadValidCount > 0 && (
@@ -2755,14 +2893,7 @@ export default function DashboardPage() {
                 )}
 
                 <div className={styles.modalActions}>
-                  <button
-                    className={styles.btnMini}
-                    onClick={() => {
-                      setUploadView('select');
-                      setUploadFiles([]);
-                      if (fileInputRef.current) fileInputRef.current.value = '';
-                    }}
-                  >
+                  <button className={styles.btnMini} onClick={resetUploadSelection}>
                     ファイルを選び直す
                   </button>
                   <button
@@ -2788,10 +2919,10 @@ export default function DashboardPage() {
                 </p>
 
                 <div className={styles.confirmList}>
-                  {uploadFiles.map((f, i) => (
+                  {uploadResults.map((f, i) => (
                     <div key={i} className={styles.confirmRow}>
                       <div className={styles.confirmRowTop}>
-                        <div className={styles.confirmFileName}>{f.name}</div>
+                        <div className={styles.confirmFileName}>{f.fileName}</div>
                         {f.resultStatus === 'success' && (
                           <span className={`${styles.confirmBadge} ${styles.confirmBadgeSuccess}`}>成功</span>
                         )}
@@ -2801,7 +2932,7 @@ export default function DashboardPage() {
                       </div>
                       {f.resultStatus === 'success' && (
                         <div className={styles.confirmDetail}>
-                          {f.status === 'new' ? '新規登録' : '更新完了'}
+                          {f.operation === 'create' ? '新規登録' : '更新完了'}
                         </div>
                       )}
                       {f.resultStatus === 'conflict' && (
@@ -2809,22 +2940,15 @@ export default function DashboardPage() {
                           このファイルは確認後に別ユーザーによって更新されました。最新状態を確認して再度実行してください。
                         </div>
                       )}
-                      {f.resultStatus === 'error' && (
-                        <div className={styles.confirmErrorReason}>{f.reason}</div>
+                      {f.resultStatus === 'error' && f.errorMessage && (
+                        <div className={styles.confirmErrorReason}>{f.errorMessage}</div>
                       )}
                     </div>
                   ))}
                 </div>
 
                 <div className={styles.modalActions}>
-                  <button
-                    className={styles.btnMini}
-                    onClick={() => {
-                      setUploadView('select');
-                      setUploadFiles([]);
-                      if (fileInputRef.current) fileInputRef.current.value = '';
-                    }}
-                  >
+                  <button className={styles.btnMini} onClick={resetUploadSelection}>
                     ファイルを再選択
                   </button>
                   <button

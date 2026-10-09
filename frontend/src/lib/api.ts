@@ -15,7 +15,8 @@ export type ApiResult<T> =
   // status は通信自体に失敗した場合 0 とする。
   // messages はAPIの message（文字列または配列。api-design.md 0-3）を配列にそろえたもの。
   // 本文がJSONでない場合（バックエンド停止時に転送が失敗した場合など）は空配列になる。
-  | { ok: false; status: number; messages: string[] };
+  // body はJSONの本文そのもの（JSONでない・通信失敗のときは null）。message 以外の項目を読むときに使う
+  | { ok: false; status: number; messages: string[]; body: unknown };
 
 export function apiGet<T>(path: string): Promise<ApiResult<T>> {
   return request<T>('GET', path);
@@ -33,20 +34,27 @@ export function apiDelete<T>(path: string): Promise<ApiResult<T>> {
   return request<T>('DELETE', path);
 }
 
+// ファイルを multipart/form-data で送る（Excel読込プレビュー 4-2）
+export function apiPostForm<T>(path: string, form: FormData): Promise<ApiResult<T>> {
+  return request<T>('POST', path, form);
+}
+
 async function request<T>(
   method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
   path: string,
   body?: unknown,
 ): Promise<ApiResult<T>> {
+  // FormData のときは Content-Type を付けない（区切り文字入りの値をブラウザが付けるため）
+  const isForm = body instanceof FormData;
   let response: Response;
   try {
     response = await fetch(`/api${path}`, {
       method,
-      headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
-      body: body === undefined ? undefined : JSON.stringify(body),
+      headers: body === undefined || isForm ? undefined : { 'Content-Type': 'application/json' },
+      body: body === undefined ? undefined : isForm ? body : JSON.stringify(body),
     });
   } catch {
-    return { ok: false, status: 0, messages: [] };
+    return { ok: false, status: 0, messages: [], body: null };
   }
 
   const json: unknown = await response.json().catch(() => null);
@@ -54,7 +62,7 @@ async function request<T>(
   if (response.ok) {
     return { ok: true, status: response.status, data: json as T };
   }
-  return { ok: false, status: response.status, messages: extractMessages(json) };
+  return { ok: false, status: response.status, messages: extractMessages(json), body: json };
 }
 
 function extractMessages(json: unknown): string[] {
