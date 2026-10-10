@@ -277,12 +277,19 @@ type PreviewResponse = {
   summary: { totalCount: number; errorCount: number; successCount: number };
 };
 
-// 読み込み結果（結合5dで4-3につなぐまでの仮の形）
-type UploadResult = {
+// POST /projects/:id/test-files/commit のレスポンス（api-design.md 4-3）。
+// 楽観ロックの競合も、ほかのエラーと同じ result: 'error' で、errorMessage だけが競合用になる（仕様書8-1）
+type CommitFileResult = {
   fileName: string;
-  operation: PreviewFile['operation'];
-  resultStatus: 'success' | 'conflict' | 'error';
+  result: 'success' | 'error';
+  operation?: 'create' | 'update';
+  fileId?: string;
   errorMessage?: string;
+};
+
+type CommitResponse = {
+  files: CommitFileResult[];
+  summary: { totalCount: number; successCount: number; errorCount: number };
 };
 
 export default function DashboardPage() {
@@ -405,7 +412,9 @@ export default function DashboardPage() {
   // 確認画面に出す解析結果（ファイル名の自然順）。全件エラーの400では、ファイル名だけのエラー行になる
   const [previewFiles, setPreviewFiles] = useState<PreviewFile[]>([]);
   const [isPreviewing, setIsPreviewing] = useState(false);
-  const [uploadResults, setUploadResults] = useState<UploadResult[]>([]);
+  // 結果画面に出す実行結果（ファイル名の自然順）
+  const [uploadResults, setUploadResults] = useState<CommitFileResult[]>([]);
+  const [isCommitting, setIsCommitting] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -1570,22 +1579,72 @@ export default function DashboardPage() {
     }
   };
 
-  // 読み込みの実行は、結合5dで4-3につなぐまでの仮の動き
-  const executeImport = () => {
-    let conflictAssigned = false;
-    const results: UploadResult[] = previewFiles.map(f => {
-      if (f.operation === 'error') {
-        return { fileName: f.fileName, operation: f.operation, resultStatus: 'error', errorMessage: f.errorMessage };
-      }
-      if (f.operation === 'update' && !conflictAssigned && f.fileName === 'EC機能テスト仕様書_v2.3.xlsx') {
-        conflictAssigned = true;
-        return { fileName: f.fileName, operation: f.operation, resultStatus: 'conflict' };
-      }
-      return { fileName: f.fileName, operation: f.operation, resultStatus: 'success' };
+  // Excel読込の実行（仕様書6-8・8-1、api-design.md 4-3）。確認画面で保持している解析結果を送り返し、
+  // Excelは送り直さない。エラーのファイルは送らない（確認画面で「スキップされる」と伝えている）
+  const handleExecuteImport = async () => {
+    if (isCommitting || !detailTargetId) {
+      return;
+    }
+    const projectId = detailTargetId;
+    const targets = previewFiles.filter(f => f.operation !== 'error');
+    if (targets.length === 0) {
+      return;
+    }
+
+    setIsCommitting(true);
+    const result = await apiPost<CommitResponse>(`/projects/${projectId}/test-files/commit`, {
+      files: targets.map(f => ({
+        fileName: f.fileName,
+        operation: f.operation,
+        existingFileId: f.existingFileId,
+        baseVersion: f.baseVersion,
+        parsedData: f.parsedData,
+      })),
     });
 
-    setUploadResults(results);
-    setUploadView('result');
+    if (!result.ok && result.status === 401) {
+      // 遷移が終わるまで、実行ボタンは押せないままにする
+      router.replace('/login');
+      return;
+    }
+    setIsCommitting(false);
+    // 通信中に別のプロジェクトへ切り替わっていたら、前のプロジェクトの結果で今の画面を書き換えない
+    // （切り替えた時点でモーダルは閉じている）
+    if (detailTargetIdRef.current !== projectId) {
+      return;
+    }
+
+    if (result.ok) {
+      // 一部・全部のファイルがエラーでも200。結果画面でファイルごとに成功／エラーを出す（仕様書6-8）
+      setUploadResults([...result.data.files].sort((a, b) => compareFileName(a.fileName, b.fileName)));
+      setUploadView('result');
+      // 1件でも登録・更新されたら、一覧と全体進捗を取り直す（全体進捗は表示を残して中身だけ置き換える）
+      if (result.data.summary.successCount > 0) {
+        setFilesAttempt(attempt => attempt + 1);
+        void refreshProjectDetail(projectId);
+      }
+      return;
+    }
+
+    const message = result.messages[0];
+    if (result.status === 403) {
+      // 閲覧者になっていた、終了済みになっていた場合など。詳細を取り直して最新のロール・状態に合わせる
+      closeUploadModal();
+      setToast({ id: Date.now(), message: message ?? 'この操作を行う権限がありません。' });
+      setDetailAttempt(attempt => attempt + 1);
+    } else if (result.status === 404) {
+      // プロジェクトから外されていた場合など。取り直しの404で、プロジェクトが見つからない扱いになる
+      closeUploadModal();
+      setToast({ id: Date.now(), message: message ?? NETWORK_ERROR_MESSAGE });
+      setFilesAttempt(attempt => attempt + 1);
+      void refreshProjectDetail(projectId);
+    } else {
+      // 確認画面のまま、もう一度「実行」を押せるようにする
+      setToast({
+        id: Date.now(),
+        message: (result.status === 400 || result.status === 500) && message ? message : NETWORK_ERROR_MESSAGE,
+      });
+    }
   };
 
   const handleLogout = async () => {
@@ -1733,7 +1792,7 @@ export default function DashboardPage() {
 
   const uploadErrorCount = previewFiles.filter(f => f.operation === 'error').length;
   const uploadValidCount = previewFiles.length - uploadErrorCount;
-  const uploadSuccessCount = uploadResults.filter(f => f.resultStatus === 'success').length;
+  const uploadSuccessCount = uploadResults.filter(f => f.result === 'success').length;
   const uploadFailCount = uploadResults.length - uploadSuccessCount;
 
   // ロール表示名
@@ -2778,8 +2837,8 @@ export default function DashboardPage() {
         <div
           className={styles.modalOverlay}
           onClick={() => {
-            // 解析中は閉じない（結果を受け取れる状態のまま待つ）
-            if (!isPreviewing) {
+            // 解析中・実行中は閉じない（結果を受け取れる状態のまま待つ）
+            if (!isPreviewing && !isCommitting) {
               closeUploadModal();
             }
           }}
@@ -2909,15 +2968,17 @@ export default function DashboardPage() {
                 )}
 
                 <div className={styles.modalActions}>
-                  <button className={styles.btnMini} onClick={resetUploadSelection}>
+                  <button className={styles.btnMini} onClick={resetUploadSelection} disabled={isCommitting}>
                     ファイルを選び直す
                   </button>
                   <button
                     className={`${styles.btnMini} ${styles.btnMiniPrimary}`}
-                    disabled={uploadValidCount === 0}
-                    onClick={executeImport}
+                    disabled={uploadValidCount === 0 || isCommitting}
+                    onClick={handleExecuteImport}
                   >
-                    {uploadValidCount === 0 ? 'この内容で読み込む' : (uploadErrorCount > 0 ? `正常な${uploadValidCount}件を読み込む` : 'この内容で読み込む')}
+                    {isCommitting
+                      ? '読み込み中...'
+                      : uploadValidCount === 0 ? 'この内容で読み込む' : (uploadErrorCount > 0 ? `正常な${uploadValidCount}件を読み込む` : 'この内容で読み込む')}
                   </button>
                 </div>
               </div>
@@ -2927,36 +2988,40 @@ export default function DashboardPage() {
             {uploadView === 'result' && (
               <div>
                 <div className={styles.modalTitle}>読み込み結果</div>
-                <p className={styles.modalDesc}>
-                  {uploadFailCount === 0
-                    ? `${uploadSuccessCount}件のファイルを読み込みました。`
-                    : `${uploadSuccessCount}件を読み込みました。${uploadFailCount}件は登録/更新されていません。`
-                  }
-                </p>
+                {/* 要約は確認画面（仕様書6-6）と同じく、エラーなし・一部エラー・全件エラーで分ける */}
+                {uploadFailCount === 0 && (
+                  <p className={styles.modalDesc}>{uploadSuccessCount}件のファイルを読み込みました。</p>
+                )}
+                {uploadFailCount > 0 && uploadSuccessCount > 0 && (
+                  <div className={`${styles.confirmSummary} ${styles.confirmSummaryHasError}`}>
+                    {uploadSuccessCount}件を読み込みました。{uploadFailCount}件は登録／更新されていません。
+                  </div>
+                )}
+                {uploadFailCount > 0 && uploadSuccessCount === 0 && (
+                  <div className={`${styles.confirmSummary} ${styles.confirmSummaryAllError}`}>
+                    すべてのファイルが登録／更新されていません。
+                  </div>
+                )}
 
                 <div className={styles.confirmList}>
                   {uploadResults.map((f, i) => (
                     <div key={i} className={styles.confirmRow}>
                       <div className={styles.confirmRowTop}>
                         <div className={styles.confirmFileName}>{f.fileName}</div>
-                        {f.resultStatus === 'success' && (
+                        {f.result === 'success' && (
                           <span className={`${styles.confirmBadge} ${styles.confirmBadgeSuccess}`}>成功</span>
                         )}
-                        {(f.resultStatus === 'error' || f.resultStatus === 'conflict') && (
+                        {f.result === 'error' && (
                           <span className={`${styles.confirmBadge} ${styles.confirmBadgeError}`}>エラー</span>
                         )}
                       </div>
-                      {f.resultStatus === 'success' && (
+                      {f.result === 'success' && (
                         <div className={styles.confirmDetail}>
                           {f.operation === 'create' ? '新規登録' : '更新完了'}
                         </div>
                       )}
-                      {f.resultStatus === 'conflict' && (
-                        <div className={styles.confirmErrorReason}>
-                          このファイルは確認後に別ユーザーによって更新されました。最新状態を確認して再度実行してください。
-                        </div>
-                      )}
-                      {f.resultStatus === 'error' && f.errorMessage && (
+                      {/* 楽観ロックの競合も、理由の文言が違うだけで、ほかのエラーと同じ表示（仕様書8-1） */}
+                      {f.result === 'error' && f.errorMessage && (
                         <div className={styles.confirmErrorReason}>{f.errorMessage}</div>
                       )}
                     </div>

@@ -285,6 +285,42 @@ describe('テストファイルAPI (e2e)', () => {
     );
   });
 
+  describe('POST /projects/:id/test-files/commit - 確認後に更新対象が取り消されていた場合', () => {
+    it('そのファイルだけがエラー（ファイルが見つからない）になり、ほかのファイルは登録される（200）', async () => {
+      const removedName = uniqueFileName();
+      const removedId = await createFileViaApi(removedName);
+      // 確認画面を出したあと、別の人が登録取消した想定
+      await agent
+        .delete(`/projects/${fixture.projectId}/test-files/${removedId}`)
+        .expect(200);
+      const newName = uniqueFileName();
+
+      const res = await agent
+        .post(commitUrl())
+        .send({
+          files: [
+            {
+              fileName: removedName,
+              operation: 'update',
+              existingFileId: removedId,
+              baseVersion: 1,
+              parsedData: UPDATED_PARSED_DATA,
+            },
+            { fileName: newName, operation: 'create', parsedData: PARSED_DATA },
+          ],
+        })
+        .expect(200);
+
+      expect(res.body.files).toEqual([
+        { fileName: removedName, result: 'error', errorMessage: FILE_NOT_FOUND_MESSAGE },
+        expect.objectContaining({ fileName: newName, result: 'success', operation: 'create' }),
+      ]);
+      expect(res.body.summary).toEqual({ totalCount: 2, successCount: 1, errorCount: 1 });
+      // 取り消されたファイルは、更新で作り直されない
+      expect(await countTestFiles(removedName)).toBe(0);
+    });
+  });
+
   describe('POST /projects/:id/test-files/commit - 同時実行時の整合性', () => {
     it(
       '同じbaseVersionの更新が同時に届いても成功は1件だけで、version・履歴に不整合が残らない',
