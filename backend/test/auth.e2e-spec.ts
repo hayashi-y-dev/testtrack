@@ -8,7 +8,7 @@ import {
   type TestUser,
 } from './helpers/test-app.js';
 
-// ログアウト（api-design.md 1-2章）
+// ログアウト（POST /auth/logout）
 describe('ログアウト (e2e)', () => {
   let app: INestApplication;
   let prisma: PrismaService;

@@ -135,7 +135,7 @@ export class MembersService {
     }
 
     // メンバーを追加（ロールは常にtester）。
-    // 追加された人のタブでは、その人の進行中プロジェクトの末尾に出す（作成時の2-2節と同じ扱い）
+    // 追加された人のタブでは、その人の進行中プロジェクトの末尾に出す（プロジェクト作成時と同じ扱い）
     const newMember = await this.prisma.projectMember.create({
       data: {
         userId: dto.userId,

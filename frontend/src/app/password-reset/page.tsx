@@ -7,7 +7,6 @@ import styles from './password-reset.module.css';
 
 /**
  * パスワード再設定申請画面
- * 仕様書セクション1-5, 1-6に基づく実装
  * - 登録メールアドレスを入力して再設定用メールを送信
  * - 未登録メールアドレスでも登録済みと同じメッセージを表示（セキュリティ対策）
  */
@@ -16,11 +15,11 @@ export default function PasswordResetRequestPage() {
   const [emailError, setEmailError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSent, setIsSent] = useState(false);
-  // APIの400は複数のメッセージを返しうるため、配列で持つ（api-design.md 0-3）
+  // APIの400は複数のメッセージを返しうるため、配列で持つ
   const [requestErrors, setRequestErrors] = useState<string[]>([]);
 
   /**
-   * メールアドレスのバリデーション（仕様書1-6準拠）
+   * メールアドレスのバリデーション
    * - 必須
    * - 前後空白除去
    * - メール形式
@@ -60,7 +59,7 @@ export default function PasswordResetRequestPage() {
 
     const result = await apiPost('/auth/password-reset-request', { email: email.trim() });
 
-    // 仕様書1-5: 登録の有無を推測させないため、200なら常に同じ送信完了状態を表示する
+    // 登録の有無を推測させないため、200なら常に同じ送信完了状態を表示する
     if (result.ok) {
       setIsSent(true);
     } else if (result.status === 400 && result.messages.length > 0) {

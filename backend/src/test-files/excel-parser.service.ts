@@ -17,7 +17,7 @@ interface HeaderRow {
 @Injectable()
 export class ExcelParserService {
   private readonly SUPPORTED_EXTENSIONS = ['.xlsx', '.xls'];
-  // 誤検出防止のため、ヘッダー行はシート先頭から30行以内に限定する（仕様書6-1章）
+  // 誤検出防止のため、ヘッダー行はシート先頭から30行以内に限定する
   private readonly HEADER_SCAN_MAX_ROWS = 30;
   private readonly UNSUPPORTED_EXT_MESSAGE =
     '対応していないファイル形式です。.xlsxまたは.xls形式のファイルを選択してください。';
@@ -61,7 +61,7 @@ export class ExcelParserService {
       const workbook = XLSX.read(buffer, { type: 'buffer' });
 
       // 更新履歴シート等を誤って集計しないよう、「No」列と結果列の両方を持つ
-      // シートのみを対象とし、それ以外のシートはエラーにせず無視する（仕様書6-1章）
+      // シートのみを対象とし、それ以外のシートはエラーにせず無視する
       const sheetResults: ParsedData[] = [];
       for (const sheetName of workbook.SheetNames) {
         const sheetData = this.parseSheet(workbook.Sheets[sheetName]);
@@ -77,7 +77,7 @@ export class ExcelParserService {
         };
       }
 
-      // 対象シートが複数ある場合は全シート合算とする（MVP範囲、仕様書6-1章）
+      // 対象シートが複数ある場合は全シート合算とする（MVP範囲）
       const data = this.sumParsedData(sheetResults);
 
       if (data.targetCount === 0 && data.excludedCount === 0) {
@@ -171,7 +171,7 @@ export class ExcelParserService {
    * 実施状況を示す列（結果列）を探す
    */
   private findStatusColumn(headers: string[]): string | null {
-    // 部分一致だと「期待結果」等を結果列と誤判定するため、No列と同じく完全一致で探す（仕様書6-1章）
+    // 部分一致だと「期待結果」等を結果列と誤判定するため、No列と同じく完全一致で探す
     const statusKeywords = [
       '実施状況',
       '実施状態',

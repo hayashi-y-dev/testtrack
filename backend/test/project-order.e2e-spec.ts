@@ -8,7 +8,7 @@ import {
   type TestUser,
 } from './helpers/test-app.js';
 
-// タブ並び順保存API（api-design.md 2-6）を確認する。
+// タブ並び順保存API（PATCH /projects/order）を確認する。
 // 画面はドロップ時に全件の並びを送り、400なら一覧を取り直すため、保存結果と400の条件をここで固定する
 describe('タブ並び順の保存 (e2e)', () => {
   let app: INestApplication;

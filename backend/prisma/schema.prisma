@@ -1,7 +1,6 @@
 // =============================================================================
 // TestTrack Prismaスキーマ
 // =============================================================================
-// DB設計仕様書: docs/db-schema.md
 // 設計判断の詳細は同ファイルの3章を参照
 
 datasource db {
@@ -33,13 +32,13 @@ enum ProjectRole {
 // =============================================================================
 
 // -----------------------------------------------------------------------------
-// User（db-schema.md 2-1章）
+// User
 // -----------------------------------------------------------------------------
 model User {
   id           String   @id @default(uuid())
   email        String   @unique
   passwordHash String   @map("password_hash")
-  displayName  String   @map("display_name")  // 単一カラムとした理由: db-schema.md 3-4章
+  displayName  String   @map("display_name")  // 姓・名を分けて使う機能（並べ替え・敬称付けなど）がないため、1つの項目にしている
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
@@ -52,7 +51,7 @@ model User {
 }
 
 // -----------------------------------------------------------------------------
-// Project（db-schema.md 2-2章）
+// Project
 // -----------------------------------------------------------------------------
 model Project {
   id        String        @id @default(uuid())
@@ -68,7 +67,7 @@ model Project {
 }
 
 // -----------------------------------------------------------------------------
-// ProjectMember（db-schema.md 2-3章）
+// ProjectMember
 // -----------------------------------------------------------------------------
 // どのユーザーが、どのプロジェクトに、どのロールで参加しているかを管理
 model ProjectMember {
@@ -88,10 +87,10 @@ model ProjectMember {
 }
 
 // -----------------------------------------------------------------------------
-// TestFile（db-schema.md 2-4章）
+// TestFile
 // -----------------------------------------------------------------------------
 // Excelから読み込んだテストファイルの情報と最新の集計値を保持
-// 集計値を本体に直接持たせた理由: db-schema.md 3-1章
+// 最新の集計値は本体に直接持たせる。一覧・進捗集計の取得が結合なしで済み、楽観ロック（version）と集計値の更新を同じ行で行えるため
 model TestFile {
   id            String   @id @default(uuid())
   projectId     String   @map("project_id")
@@ -108,7 +107,7 @@ model TestFile {
 
   project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   updatedBy User    @relation("TestFileUpdatedBy", fields: [lastUpdatedBy], references: [id], onDelete: Restrict)
-  // lastUpdatedByのonDelete: Restrict の理由: db-schema.md 3-5章
+  // lastUpdatedByのonDelete: Restrict
   // 現MVP仕様にユーザー削除機能がないため、将来追加時に再検討
 
   snapshots ProgressSnapshot[]
@@ -119,9 +118,9 @@ model TestFile {
 }
 
 // -----------------------------------------------------------------------------
-// ProgressSnapshot（db-schema.md 2-5章）
+// ProgressSnapshot
 // -----------------------------------------------------------------------------
-// テストファイルの進捗履歴。用途: db-schema.md 3-2章
+// テストファイルの進捗履歴。登録取消できるか（初回登録の履歴しかないか）の判定と、いつ・誰が更新したかの記録に使う
 // - 登録取消可否判定（初回登録後の更新履歴有無）
 // - 将来の日別進捗推移グラフ（MVP対象外）
 // - 監査ログ的な記録
@@ -157,9 +156,9 @@ model Session {
 }
 
 // -----------------------------------------------------------------------------
-// PasswordResetToken（db-schema.md 2-7章）
+// PasswordResetToken
 // -----------------------------------------------------------------------------
-// パスワード再設定用トークン。専用テーブルにした理由: db-schema.md 3-7章
+// パスワード再設定用トークン。一時的な使い捨ての情報をユーザー本体に混ぜないため、専用テーブルにしている
 // tokenカラムにはSHA-256ハッシュ化した値を保存する（生トークンは保存しない）
 model PasswordResetToken {
   id        String    @id @default(uuid())

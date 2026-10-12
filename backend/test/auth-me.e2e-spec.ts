@@ -10,7 +10,7 @@ import {
 
 const LOGIN_REQUIRED_MESSAGE = 'ログインが必要です。';
 
-// ログイン中ユーザー取得（api-design.md 1-6）
+// ログイン中ユーザー取得（GET /auth/me）
 describe('ログイン中ユーザー取得 (e2e)', () => {
   let app: INestApplication;
   let prisma: PrismaService;

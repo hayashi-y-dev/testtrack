@@ -30,10 +30,10 @@ const PARSED_DATA = {
 };
 const UPDATED_PARSED_DATA = { ...PARSED_DATA, okCount: 3, notRunCount: 0 };
 
-// 同時実行の件数。修正前の実装ではこの規模で同じbaseVersionの更新が複数件成功していた
+// 同時実行の件数。確認と更新を別々に行う実装だと、この規模で同じbaseVersionの更新が複数件成功してしまう
 const PARALLEL_REQUESTS = 20;
-// 同時更新の競合はタイミング次第で1ラウンドだと再現しないことがある（修正前の実装で
-// 検出率は約7〜8割）ため、ラウンドを重ねて回帰を見逃す確率を下げる
+// 同時更新の競合はタイミング次第で1ラウンドだと再現しないことがあるため、
+// ラウンドを重ねて回帰を見逃す確率を下げる
 const RACE_ROUNDS = 5;
 
 interface CommitFileResult {
@@ -398,7 +398,7 @@ describe('テストファイルAPI (e2e)', () => {
         );
         expect(responses.every((res) => res.status === 200)).toBe(true);
         expect(results.filter((r) => r.result === 'success')).toHaveLength(1);
-        // ユニーク制約違反は汎用エラーではなく、楽観ロック競合と同じ文言で返す（仕様8-1章）
+        // ユニーク制約違反は汎用エラーではなく、楽観ロック競合と同じ文言で返す
         expect(
           results
             .filter((r) => r.result === 'error')
@@ -480,7 +480,7 @@ describe('テストファイルAPI (e2e)', () => {
         [1, 'OK'],
       ]);
 
-    it('updateの場合は、現在の最終更新日時・最終更新者を4-1の一覧と同じ形式で返す', async () => {
+    it('updateの場合は、現在の最終更新日時・最終更新者を一覧APIと同じ形式で返す', async () => {
       const name = uniqueFileName();
       await createFileViaApi(name);
 
@@ -537,7 +537,7 @@ describe('テストファイルAPI (e2e)', () => {
       ]);
     const japaneseFileName = (): string => `ログイン機能_テスト仕様書_${++fileNameSeq}.xlsx`;
 
-    it('プレビュー（4-2）は、日本語のファイル名を文字化けさせずに返す', async () => {
+    it('プレビューは、日本語のファイル名を文字化けさせずに返す', async () => {
       const name = japaneseFileName();
       const res = await agent
         .post(previewUrl())
@@ -547,7 +547,7 @@ describe('テストファイルAPI (e2e)', () => {
       expect(res.body.files[0]).toMatchObject({ fileName: name, operation: 'create' });
     });
 
-    it('プレビュー（4-2）は、日本語のファイル名でも既存と同名なら更新と判定する', async () => {
+    it('プレビューは、日本語のファイル名でも既存と同名なら更新と判定する', async () => {
       const name = japaneseFileName();
       const fileId = await createFileViaApi(name);
 
@@ -563,7 +563,7 @@ describe('テストファイルAPI (e2e)', () => {
       });
     });
 
-    it('実行（4-3）は、日本語のファイル名をそのまま登録する', async () => {
+    it('実行は、日本語のファイル名をそのまま登録する', async () => {
       const name = japaneseFileName();
       await createFileViaApi(name);
 

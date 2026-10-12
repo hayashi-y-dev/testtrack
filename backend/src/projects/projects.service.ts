@@ -47,7 +47,7 @@ export class ProjectsService {
     userId: string,
     dto: CreateProjectDto,
   ): Promise<ProjectListItem> {
-    // 既存の進行中プロジェクトの末尾に追加する（api-design.md 2-2節）
+    // 既存の進行中プロジェクトの末尾に追加する
     const newOrder = await nextDisplayOrder(this.prisma, userId);
 
     // プロジェクトとメンバーシップを同時作成
@@ -174,7 +174,7 @@ export class ProjectsService {
     }
 
     // ステータスを更新し、全メンバーの並び順をNULLにする。
-    // 終了済みはタブに表示されず並び順の概念がないため、値を持たない（db-schema.md 2-3節）。
+    // 終了済みはタブに表示されず並び順の概念がないため、値を持たない。
     // 片方だけ反映された状態を残さないよう、1つのトランザクションで行う
     const [updatedProject] = await this.prisma.$transaction([
       this.prisma.project.update({

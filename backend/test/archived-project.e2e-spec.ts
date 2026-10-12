@@ -23,7 +23,7 @@ const PARSED_DATA = {
   excludedCount: 0,
 };
 
-// 終了済みプロジェクトでは更新系操作を403にする（仕様書2-6章、api-design.md 0-4節）
+// 終了済みプロジェクトでは更新系操作を403にする
 describe('終了済みプロジェクトでの更新系操作の制限 (e2e)', () => {
   let app: INestApplication;
   let prisma: PrismaService;

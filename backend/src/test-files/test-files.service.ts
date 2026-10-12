@@ -319,7 +319,7 @@ export class TestFilesService {
       );
     } catch (error) {
       // 確認画面の表示後に別ユーザーが同名ファイルを登録していた場合（ユニーク制約違反）は、
-      // 更新の競合と同じ「エラー」として扱う（仕様6-8章・8-1章）
+      // 更新の競合と同じ「エラー」として扱う
       if (
         error instanceof Prisma.PrismaClientKnownRequestError &&
         error.code === 'P2002'

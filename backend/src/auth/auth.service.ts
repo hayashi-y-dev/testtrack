@@ -65,7 +65,7 @@ export class AuthService {
   async getCurrentUser(
     userId: string,
   ): Promise<{ id: string; email: string; displayName: string }> {
-    // 返すのは、ログイン（1-1）の成功時と同じ3項目（api-design.md 1-6）
+    // 返すのは、ログインの成功時と同じ3項目
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: { id: true, email: true, displayName: true },

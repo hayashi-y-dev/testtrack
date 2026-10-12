@@ -9,7 +9,7 @@ import type { Request, Response } from 'express';
 import multer, { MulterError } from 'multer';
 import type { Observable } from 'rxjs';
 
-// アップロードの上限（仕様書FILE-04）。1回の送信の合計（10MB）は、手前のNext.jsの転送の既定値で決まる
+// アップロードの上限。1回の送信の合計（10MB）は、手前のNext.jsの転送の既定値で決まる
 export const MAX_UPLOAD_FILES = 20;
 export const MAX_UPLOAD_FILE_SIZE = 5 * 1024 * 1024;
 
@@ -19,12 +19,12 @@ export const FILE_TOO_LARGE_MESSAGE =
 const UNREADABLE_UPLOAD_MESSAGE = '送信されたファイルを読み取れませんでした。';
 
 /**
- * Excel読込（4-2）のファイルを受け取る。Nest標準の FilesInterceptor は上限超えを英語の文言にするため、
+ * Excel読込のプレビューで、アップロードされたファイルを受け取る。Nest標準の FilesInterceptor は上限超えを英語の文言にするため、
  * multer のエラーの種類を見て、何がどう超えたか分かる日本語の400にする
  */
 @Injectable()
 export class TestFilesUploadInterceptor implements NestInterceptor {
-  // 保存先を指定しないため、ファイルはメモリに置かれる（原本は永続保存しない。仕様書6-1）。
+  // 保存先を指定しないため、ファイルはメモリに置かれる（Excelの原本は保存しない）。
   // 5MBを超えたファイルはその時点で受け取りをやめ、残りは読み捨てるので、メモリに溜まらない
   private readonly upload = multer({
     limits: { fileSize: MAX_UPLOAD_FILE_SIZE, files: MAX_UPLOAD_FILES },

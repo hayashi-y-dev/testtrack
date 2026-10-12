@@ -13,7 +13,7 @@ const NEST_DEFAULT_ERROR_MESSAGE = 'Internal server error';
 export type ApiResult<T> =
   | { ok: true; status: number; data: T }
   // status は通信自体に失敗した場合 0 とする。
-  // messages はAPIの message（文字列または配列。api-design.md 0-3）を配列にそろえたもの。
+  // messages はAPIの message（文字列または配列）を配列にそろえたもの。
   // 本文がJSONでない場合（バックエンド停止時に転送が失敗した場合など）は空配列になる。
   // body はJSONの本文そのもの（JSONでない・通信失敗のときは null）。message 以外の項目を読むときに使う
   | { ok: false; status: number; messages: string[]; body: unknown };
@@ -34,7 +34,7 @@ export function apiDelete<T>(path: string): Promise<ApiResult<T>> {
   return request<T>('DELETE', path);
 }
 
-// ファイルを multipart/form-data で送る（Excel読込プレビュー 4-2）
+// ファイルを multipart/form-data で送る（Excel読込のプレビュー）
 export function apiPostForm<T>(path: string, form: FormData): Promise<ApiResult<T>> {
   return request<T>('POST', path, form);
 }

@@ -4,7 +4,6 @@ import "./globals.css";
 
 /**
  * フォント設定
- * HTMLモック (docs/mockups/) のデザインに合わせて選定
  * - Space Grotesk: 見出し・ブランド用
  * - Noto Sans JP: 本文用（日本語対応）
  * - JetBrains Mono: 数値・コード用

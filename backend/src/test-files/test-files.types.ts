@@ -9,7 +9,7 @@ export interface TestFileListItem {
   lastUpdatedBy: string;
 }
 
-// 4-2 Preview用の型定義
+// プレビュー（POST /projects/:id/test-files/preview）用の型定義
 export interface ParsedData {
   targetCount: number;
   okCount: number;
@@ -42,7 +42,7 @@ export interface PreviewResponse {
   };
 }
 
-// 4-3 Commit用の型定義
+// 実行（POST /projects/:id/test-files/commit）用の型定義
 export type CommitResult = 'success' | 'error';
 
 export interface CommitFileResult {

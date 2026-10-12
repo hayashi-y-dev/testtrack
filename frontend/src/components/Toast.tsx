@@ -11,7 +11,7 @@ type ToastProps = {
 };
 
 /**
- * 一時的なエラー通知（仕様書4-8「一部操作の失敗は短いエラー通知を表示する」）
+ * 一時的なエラー通知（一部の操作の失敗を、画面を止めずに短く知らせる）
  * 表示から数秒で onClose を呼ぶ。同じ文言を続けて表示し直す場合は、呼び出し側で key を変えて作り直す。
  */
 export default function Toast({ message, onClose }: ToastProps) {

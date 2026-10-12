@@ -5,7 +5,7 @@ import { AuthService } from './auth.service.js';
 
 @Module({
   imports: [
-    // ログインのレート制限（仕様書AUTH-01・SEC-03）。クライアントIPごとに1分間5回まで。
+    // ログインのレート制限。クライアントIPごとに1分間5回まで。
     // ガードはログインにだけ付けるため、ここでの設定は他のAPIには効かない（auth.controller.ts）
     ThrottlerModule.forRoot({
       throttlers: [{ ttl: seconds(60), limit: 5 }],

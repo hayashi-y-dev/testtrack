@@ -11,8 +11,8 @@ import {
   type TestUser,
 } from './helpers/test-app.js';
 
-// 「進行中プロジェクトのメンバーは必ずタブの表示順（order）を持ち、終了済みはNULL」という前提
-// （db-schema.md 2-3節）が、参加・終了の各入口で保たれることを確認する
+// 「進行中プロジェクトのメンバーは必ずタブの表示順（order）を持ち、終了済みはNULL」という前提が、
+// 参加・終了の各入口で保たれることを確認する
 describe('進行中プロジェクトのタブ表示順 (e2e)', () => {
   let app: INestApplication;
   let prisma: PrismaService;
@@ -80,7 +80,7 @@ describe('進行中プロジェクトのタブ表示順 (e2e)', () => {
     await app.close();
   });
 
-  describe('プロジェクト作成（2-2）', () => {
+  describe('プロジェクト作成', () => {
     it('作成したプロジェクトは、作成者の進行中プロジェクトの末尾（最大値+1）になる', async () => {
       // 終了済みプロジェクトの値は最大値の計算に含めない
       await createProjectFor(fixture.userId, 'archived', null);
@@ -104,7 +104,7 @@ describe('進行中プロジェクトのタブ表示順 (e2e)', () => {
     });
   });
 
-  describe('メンバー追加（3-3）', () => {
+  describe('メンバー追加', () => {
     it('追加された人の、進行中プロジェクトの末尾（最大値+1）になる', async () => {
       await createProjectFor(member.userId, 'active', 0);
       await createProjectFor(member.userId, 'active', 1);
@@ -137,7 +137,7 @@ describe('進行中プロジェクトのタブ表示順 (e2e)', () => {
     });
   });
 
-  describe('プロジェクト終了（2-5）', () => {
+  describe('プロジェクト終了', () => {
     it('終了したプロジェクトの全メンバーの表示順がNULLになる', async () => {
       // 上のテストで追加した2人を含め、全員に値が入っている状態から終了させる
       const before = await prisma.projectMember.findMany({

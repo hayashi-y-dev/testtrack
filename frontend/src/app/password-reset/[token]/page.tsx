@@ -11,7 +11,6 @@ const INVALID_LINK_PATH = '/password-reset/invalid';
 
 /**
  * パスワード再設定画面
- * 仕様書セクション1-5, 1-6に基づく実装
  * - メールで送信されたトークン付きURL（/password-reset/<token>）からアクセス
  * - 開いた時点でトークンを検証し、無効なら無効リンク画面へ移動する
  * - 新しいパスワードを設定
@@ -26,7 +25,7 @@ export default function PasswordResetPage() {
   const [passwordConfirm, setPasswordConfirm] = useState('');
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [confirmError, setConfirmError] = useState<string | null>(null);
-  // APIの400は複数のメッセージを返しうるため、配列で持つ（api-design.md 0-3）
+  // APIの400は複数のメッセージを返しうるため、配列で持つ
   const [submitErrors, setSubmitErrors] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isCompleted, setIsCompleted] = useState(false);
@@ -62,7 +61,7 @@ export default function PasswordResetPage() {
   };
 
   /**
-   * パスワードのバリデーション（仕様書1-6準拠）
+   * パスワードのバリデーション
    * - 必須
    * - 15〜64文字
    * - 文字種の指定なし
@@ -147,7 +146,7 @@ export default function PasswordResetPage() {
       );
     }
 
-    // 仕様書4-8: 画面データを取得できない場合は、取得失敗メッセージと「再読み込み」を表示する
+    // 画面データを取得できない場合は、取得失敗メッセージと「再読み込み」を表示する
     if (verifyStatus === 'failed') {
       return (
         <div className={styles.statusArea}>

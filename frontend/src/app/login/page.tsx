@@ -9,7 +9,6 @@ import styles from './login.module.css';
 
 /**
  * ログイン画面
- * 仕様書セクション1-1, 1-6に基づく実装
  * - メールアドレス＋パスワードでログイン
  * - ログイン失敗時は、どちらが誤りかを特定する文言にしない
  */
@@ -18,12 +17,12 @@ export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
-  // APIの400は複数のメッセージを返しうるため、配列で持つ（api-design.md 0-3）
+  // APIの400は複数のメッセージを返しうるため、配列で持つ
   const [loginErrors, setLoginErrors] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   /**
-   * 入力バリデーション（仕様書1-6準拠）
+   * 入力バリデーション
    * - メールアドレス: 必須、前後空白除去、メール形式、最大255文字
    * - パスワード: 必須
    */
@@ -67,7 +66,7 @@ export default function LoginPage() {
       return;
     }
 
-    // 401（どちらが誤りか特定しない文言。仕様書1-1）・400・429（試行回数の上限）はAPIの文言を表示する。
+    // 401（どちらが誤りか特定しない文言）・400・429（試行回数の上限）はAPIの文言を表示する。
     // 500・通信失敗はAPIの文言を表示できない（英語の既定文言や、本文がない場合がある）ため共通の文言にする
     const showsApiMessage = [400, 401, 429].includes(result.status);
     if (showsApiMessage && result.messages.length > 0) {

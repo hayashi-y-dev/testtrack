@@ -11,7 +11,7 @@ import {
   type TestUser,
 } from './helpers/test-app.js';
 
-// プロジェクト終了API（api-design.md 2-5）のレスポンスを確認する。
+// プロジェクト終了API（POST /projects/:id/archive）のレスポンスを確認する。
 // 画面は200の内容で終了済みへ移し、400・403・404はそれぞれの扱いに分けるため、その前提をここで固定する
 describe('プロジェクト終了 (e2e)', () => {
   let app: INestApplication;

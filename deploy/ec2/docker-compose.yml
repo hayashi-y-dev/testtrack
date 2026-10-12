@@ -1,8 +1,8 @@
-# EC2（本番）で動かすPostgreSQLの設定（docs/aws-architecture.md 4-3章）。
+# EC2（本番）で動かすPostgreSQLの設定。
 # 費用の制約からRDSを常設せず、EC2上のDockerでDBを同居させる方針のため、このファイルで起動する。
 # 起動は、このディレクトリで `docker compose up -d` を実行する。
 #
-# 認証情報はこのファイルにもリポジトリにも書かない。本物の値はParameter Storeで管理し（4-4章）、
+# 認証情報はこのファイルにもリポジトリにも書かない。本物の値はリポジトリの外に置き、
 # 起動時に環境変数またはこのディレクトリの .env で渡す（変数名は .env.example を参照）。
 
 # 開発用（backend/docker-compose.yml）とボリューム等の名前が衝突しないよう、プロジェクト名を固定する

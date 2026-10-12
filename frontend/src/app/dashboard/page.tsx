@@ -8,10 +8,9 @@ import styles from './dashboard.module.css';
 
 /**
  * ダッシュボード
- * 仕様書セクション2-1, 2-2, 2-4, 3-3, 3-5に基づく実装
  * - プロジェクトごとにロールが異なる
  * - ロールに応じてUI要素の表示/非表示を切り替え
- * - プロジェクト切替時は最新のロールを再取得（2-4: ロールは他の管理者操作で変わりうる）
+ * - プロジェクト切替時は最新のロールを再取得（ロールは、ほかの管理者の操作で変わりうるため）
  */
 
 type Role = '管理者' | 'テスター' | '閲覧者';
@@ -24,14 +23,14 @@ const ROLE_LABELS: Record<ApiRole, Role> = {
   viewer: '閲覧者',
 };
 
-// GET /auth/me のレスポンス（api-design.md 1-6。ログインの成功時と同じ形）
+// GET /auth/me のレスポンス（ログインの成功時と同じ形）
 type CurrentUser = {
   id: string;
   email: string;
   displayName: string;
 };
 
-// GET /projects のレスポンス（api-design.md 2-1）
+// GET /projects のレスポンス
 type ProjectListResponse = {
   projects: {
     id: string;
@@ -42,7 +41,7 @@ type ProjectListResponse = {
   }[];
 };
 
-// POST /projects のレスポンス（api-design.md 2-2。一覧APIの1件分と同じ形）
+// POST /projects のレスポンス（一覧APIの1件分と同じ形）
 type CreateProjectResponse = ProjectListResponse['projects'][number];
 
 type ProgressSummary = {
@@ -55,7 +54,7 @@ type ProgressSummary = {
   notRunCount: number;
 };
 
-// GET /projects/:id のレスポンス（api-design.md 2-3）
+// GET /projects/:id のレスポンス
 type ProjectDetailResponse = {
   id: string;
   name: string;
@@ -82,7 +81,7 @@ type ProjectDetail = {
   progressSummary: ProgressSummary;
 };
 
-// GET /projects/:id/members のレスポンスの1件（api-design.md 3-1）
+// GET /projects/:id/members のレスポンスの1件
 type Member = {
   id: string;
   userId: string;
@@ -92,7 +91,7 @@ type Member = {
   isMe: boolean;
 };
 
-// GET /projects/:id/members/search のレスポンスの1件（api-design.md 3-2）
+// GET /projects/:id/members/search のレスポンスの1件
 type SearchResultUser = {
   userId: string;
   displayName: string;
@@ -100,7 +99,7 @@ type SearchResultUser = {
   alreadyJoined: boolean;
 };
 
-// PATCH /projects/:id のレスポンス（api-design.md 2-4。作成と同じ形）
+// PATCH /projects/:id のレスポンス（作成と同じ形）
 type UpdateProjectResponse = ProjectListResponse['projects'][number];
 
 type ArchivedProject = {
@@ -123,7 +122,7 @@ const PROJECT_NOT_FOUND_MESSAGE = '指定されたプロジェクトが見つか
 // メンバー検索で、入力が止まってから検索するまでの待ち時間（1文字ごとに通信しないため）
 const MEMBER_SEARCH_DELAY_MS = 300;
 
-// 権限のない画面を開こうとした場合の通知（仕様書4-8）
+// 権限のない画面を開こうとした場合の通知
 const NO_PERMISSION_PAGE_MESSAGE = 'このページを表示する権限がありません。';
 
 // APIの日時（UTC）を、日本時間の「2026年3月15日」の形にする
@@ -148,10 +147,10 @@ const DATE_TIME_FORMAT_JST = new Intl.DateTimeFormat('ja-JP', {
 // テストファイル一覧の検索で、入力が止まってから取得するまでの待ち時間（メンバー検索と同じ）
 const FILE_SEARCH_DELAY_MS = 300;
 
-// 全件エラーのときの確認画面の要約（仕様書6-6）
+// 全件エラーのときの確認画面の要約
 const ALL_FILES_ERROR_MESSAGE = 'すべてのファイルがエラーのため読み込めません。';
 
-// アップロードの上限（仕様書FILE-04）。1ファイル・件数はバックエンドと同じ値、合計はNext.jsの転送の既定値
+// アップロードの上限。1ファイル・件数はバックエンドと同じ値、合計はNext.jsの転送の既定値
 const MAX_UPLOAD_FILES = 20;
 const MAX_UPLOAD_FILE_SIZE = 5 * 1024 * 1024;
 const MAX_UPLOAD_TOTAL_SIZE = 10 * 1024 * 1024;
@@ -177,7 +176,7 @@ function validateUpload(files: File[], bodySize: number): string | null {
   return null;
 }
 
-// 4-2のレスポンス（200、または全件エラーの400）の本文か。400でも files があれば確認画面を出すために使う
+// プレビューのレスポンス（200、または全件エラーの400）の本文か。400でも files があれば確認画面を出すために使う
 function isPreviewResponse(body: unknown): body is PreviewResponse {
   return typeof body === 'object' && body !== null && 'files' in body && Array.isArray(body.files);
 }
@@ -212,7 +211,7 @@ function isSameOrder(a: string[], b: string[]): boolean {
 }
 
 /**
- * プロジェクト名の入力チェック（仕様書2-2・9-1。APIの CreateProjectDto と同じ規則）
+ * プロジェクト名の入力チェック（APIの CreateProjectDto と同じ規則）
  * 前後の空白を除いた値を受け取り、問題があればエラー文言、なければ null を返す
  */
 function validateProjectName(trimmed: string): string | null {
@@ -229,7 +228,7 @@ function validateProjectName(trimmed: string): string | null {
   return null;
 }
 
-// GET /projects/:id/test-files のレスポンス（api-design.md 4-1）
+// GET /projects/:id/test-files のレスポンス
 type TestFile = {
   id: string;
   fileName: string;
@@ -246,13 +245,13 @@ type TestFileListResponse = {
   totalCount: number;
 };
 
-// 一覧の絞り込み・ソート・表示件数（APIのクエリパラメータの値そのもの。api-design.md 4-1）
+// 一覧の絞り込み・ソート・表示件数（APIのクエリパラメータの値そのもの）
 type FileStatusFilter = 'all' | 'hasIncomplete' | 'allComplete';
 type FileSortKey = 'name' | 'progress' | 'updatedAt';
 type FileDisplayLimit = 5 | 10 | 'all';
 
-// POST /projects/:id/test-files/preview のレスポンスの1件（api-design.md 4-2）。
-// parsedData・baseVersion・existingFileId は、実行（4-3）でそのまま送り返す
+// POST /projects/:id/test-files/preview のレスポンスの1件。
+// parsedData・baseVersion・existingFileId は、実行（POST .../commit）でそのまま送り返す
 type PreviewFile = {
   fileName: string;
   operation: 'create' | 'update' | 'error';
@@ -277,8 +276,8 @@ type PreviewResponse = {
   summary: { totalCount: number; errorCount: number; successCount: number };
 };
 
-// POST /projects/:id/test-files/commit のレスポンス（api-design.md 4-3）。
-// 楽観ロックの競合も、ほかのエラーと同じ result: 'error' で、errorMessage だけが競合用になる（仕様書8-1）
+// POST /projects/:id/test-files/commit のレスポンス。
+// 楽観ロックの競合も、ほかのエラーと同じ result: 'error' で、errorMessage だけが競合用になる
 type CommitFileResult = {
   fileName: string;
   result: 'success' | 'error';
@@ -319,7 +318,7 @@ export default function DashboardPage() {
   const [toast, setToast] = useState<{ id: number; message: string } | null>(null);
   // ヘッダーに表示するログイン中のユーザー。取得できるまで（取得失敗時も）は null で、名前を空にする
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
-  // テストファイル一覧の検索・絞り込み・ソート・表示件数。初期値はAPIの既定値と同じ（api-design.md 4-1）
+  // テストファイル一覧の検索・絞り込み・ソート・表示件数。初期値はAPIの既定値と同じ
   const [searchQuery, setSearchQuery] = useState('');
   // 実際に検索に使う語。入力が止まってから searchQuery を（前後の空白を除いて）反映する
   const [debouncedFileSearchTerm, setDebouncedFileSearchTerm] = useState('');
@@ -332,7 +331,7 @@ export default function DashboardPage() {
   const [isSortMenuOpen, setIsSortMenuOpen] = useState(false);
   const sortBoxWrapRef = useRef<HTMLDivElement>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
-  // タブ並び順の保存（api-design.md 2-6）で使う値。画面の描画には使わないため、stateではなくrefで持つ
+  // タブ並び順の保存で使う値。画面の描画には使わないため、stateではなくrefで持つ
   // - dragStartOrderRef: ドラッグを始めた時点の並び（変わっていなければ保存しないための比較用）
   // - savedOrderRef: サーバーに保存済みと分かっている並び（保存に失敗したときの戻し先）
   // - pendingOrderRef: 保存待ちの最新の並び（通信中に並び替えられた分を、終わってから送る）
@@ -385,7 +384,7 @@ export default function DashboardPage() {
   } | null>(null);
   // 追加の通信中のユーザー（その行の「追加」を押せなくする）
   const [addingUserIds, setAddingUserIds] = useState<string[]>([]);
-  // メンバー一覧で選んだが、まだ保存していないロール（メンバーID → ロール）。「保存」で確定する（仕様書4-6）
+  // メンバー一覧で選んだが、まだ保存していないロール（メンバーID → ロール）。「保存」で確定する
   const [roleEdits, setRoleEdits] = useState<Record<string, ApiRole>>({});
   // ロール変更の通信中のメンバー（その行のプルダウンと「保存」を押せなくする）
   const [savingRoleMemberIds, setSavingRoleMemberIds] = useState<string[]>([]);
@@ -469,7 +468,7 @@ export default function DashboardPage() {
     };
   }, [listAttempt, router, applyProjectList]);
 
-  // 画面を開いたときに、ヘッダーに出すログイン中のユーザーを取得する（api-design.md 1-6）。
+  // 画面を開いたときに、ヘッダーに出すログイン中のユーザーを取得する。
   // 一覧の取得とは待ち合わせず、並行して取る。互いの結果を使わず、失敗したときの扱いも違う
   // （一覧は取得失敗の表示を出すが、ユーザー名は空のままにするだけ）ため
   useEffect(() => {
@@ -497,9 +496,9 @@ export default function DashboardPage() {
 
   // 一覧を取り直して先頭の進行中プロジェクトへ移り、渡された文言（先頭の1件）をトーストで一時的に通知する。
   // 表示中のプロジェクトを表示し続けられない、またはサーバーの実際の状態に合わせ直したいときに使う。
-  // - 404：プロジェクトから外された・なくなった場合（仕様書4-8「権限のない画面へアクセスした場合」に準じる）
+  // - 404：プロジェクトから外された・なくなった場合（権限のない画面を開いた場合と同じ扱い）
   // - タブ並び順の保存の400：参加していない（終了した・外された）プロジェクトが含まれていた場合
-  // - 離脱の成功：離脱したプロジェクトは表示できなくなるため（仕様書4-6）
+  // - 離脱の成功：離脱したプロジェクトは表示できなくなるため
   // 文言が空のときは、プロジェクトが見つからない旨を出す（主な使い道が404のため）
   const reloadProjectListWithNotice = useCallback((messages: string[]) => {
     setToast({ id: Date.now(), message: messages[0] ?? PROJECT_NOT_FOUND_MESSAGE });
@@ -510,7 +509,7 @@ export default function DashboardPage() {
     setListAttempt(attempt => attempt + 1);
   }, []);
 
-  // プロジェクト切替時に、最新のロールと進捗サマリーを取得する（仕様書2-4）
+  // プロジェクト切替時に、最新のロールと進捗サマリーを取得する
   useEffect(() => {
     if (!detailTargetId) {
       return;
@@ -612,7 +611,7 @@ export default function DashboardPage() {
     return () => clearTimeout(timer);
   }, [fileSearchTerm]);
 
-  // テストファイル一覧の取得先（api-design.md 4-1）。検索・絞り込み・ソート・表示件数はすべてクエリで渡し、
+  // テストファイル一覧の取得先。検索・絞り込み・ソート・表示件数はすべてクエリで渡し、
   // 画面側では並べ替えない（表示件数で絞った後に画面側で並べると、全体での順位とずれるため）。
   // 一覧の取得中（404などで取り直している間）は取得しない。取り直した先頭が同じプロジェクトでも、
   // 取得先がいったん空になるため、取り直しの後に必ず取得し直す
@@ -663,7 +662,7 @@ export default function DashboardPage() {
   const filesFetchError = currentFilesResult !== null && currentFilesResult.data === null;
   const files = currentFilesResult?.data?.files ?? [];
   const filesTotalCount = currentFilesResult?.data?.totalCount ?? 0;
-  // 検索・絞り込みで0件になったのか、そもそもファイルが無いのかを、空状態の文言で区別する（仕様書5-5）。
+  // 検索・絞り込みで0件になったのか、そもそもファイルが無いのかを、空状態の文言で区別する。
   // プロジェクトにファイルが1件も無いとき（詳細の fileCount が0）は、条件をかけていても「ファイルが無い」方を出す
   const hasFileConditions = debouncedFileSearchTerm !== '' || filterSegment !== 'all';
   const isFileListFilteredEmpty = hasFileConditions && summary.fileCount > 0;
@@ -705,7 +704,7 @@ export default function DashboardPage() {
     };
   }, [rowMenuFile, isArchivedMenuOpen, isUserMenuOpen, isSortMenuOpen]);
 
-  // 列見出しのクリックで、同じ列なら昇順⇔降順を切り替え、別の列なら昇順から始める（仕様書5-3）
+  // 列見出しのクリックで、同じ列なら昇順⇔降順を切り替え、別の列なら昇順から始める
   const handleFileSortClick = (key: FileSortKey) => {
     setFileSort(prev =>
       prev.key === key
@@ -770,7 +769,7 @@ export default function DashboardPage() {
   const canManage = !isViewingArchived && currentRole === '管理者';
   const canEdit = !isViewingArchived && (currentRole === '管理者' || currentRole === 'テスター');
 
-  // プロジェクト設定を表示している間、そのプロジェクトのメンバー一覧を取得する（api-design.md 3-1）
+  // プロジェクト設定を表示している間、そのプロジェクトのメンバー一覧を取得する
   const settingsProjectId = activeNav === 'settings' && canManage ? activeProjectId : '';
   useEffect(() => {
     if (!settingsProjectId) {
@@ -791,7 +790,7 @@ export default function DashboardPage() {
       } else if (result.status === 401) {
         router.replace('/login');
       } else if (result.status === 403) {
-        // 管理者でなくなっていた場合など。ダッシュボードへ戻して知らせ（仕様書4-8）、
+        // 管理者でなくなっていた場合など。ダッシュボードへ戻して知らせ、
         // 詳細を取り直して最新のロールに合わせる（管理者ナビも消える）
         setActiveNav('dashboard');
         setToast({ id: Date.now(), message: NO_PERMISSION_PAGE_MESSAGE });
@@ -849,7 +848,7 @@ export default function DashboardPage() {
     setNameError(null);
   };
 
-  // プロジェクト名の変更（仕様書4-5・2-2、api-design.md 2-4）
+  // プロジェクト名の変更
   const handleSaveProjectName = async () => {
     if (isSavingName || editingName === null || !activeProject) {
       return;
@@ -893,12 +892,12 @@ export default function DashboardPage() {
       reloadProjectListWithNotice(result.messages);
     } else if (result.status === 403) {
       // 管理者でなくなっていた、または終了済みになっていた場合。詳細を取り直して最新のロールに合わせる
-      // （管理者以外になればナビはダッシュボードに戻る。仕様書2-4）
+      // （管理者以外になればナビはダッシュボードに戻る）
       closeNameEditor();
       setToast({ id: Date.now(), message: message ?? 'この操作を行う権限がありません。' });
       setDetailAttempt(attempt => attempt + 1);
     } else {
-      // 入力した名前は残し、そのまま保存し直せるようにする（仕様書4-8「一部操作の失敗は短いエラー通知」）
+      // 入力した名前は残し、そのまま保存し直せるようにする
       setToast({
         id: Date.now(),
         message: result.status === 500 && message ? message : NETWORK_ERROR_MESSAGE,
@@ -907,7 +906,7 @@ export default function DashboardPage() {
     setIsSavingName(false);
   };
 
-  // メンバー追加モーダルの検索（api-design.md 3-2）。前後の空白を除いた入力で検索し、空なら検索しない
+  // メンバー追加モーダルの検索。前後の空白を除いた入力で検索し、空なら検索しない
   const memberSearchTerm = memberSearchQuery.trim();
   const memberSearchProjectId = isAddMemberModalOpen ? settingsProjectId : '';
 
@@ -975,7 +974,7 @@ export default function DashboardPage() {
     );
   };
 
-  // メンバー追加（仕様書4-6、api-design.md 3-3）。追加後もモーダルは開いたままにし、続けて追加できるようにする。
+  // メンバー追加。追加後もモーダルは開いたままにし、続けて追加できるようにする。
   // 追加するユーザーは、押されたボタンの value から読む。行ごとに () => handleAddMember(id) と包むと、
   // Reactのlint（react-hooks/purity）が中の Date.now() を描画中の呼び出しと誤って指摘するため、
   // ほかのボタンと同じく関数をそのまま onClick に渡す形にしている
@@ -993,7 +992,7 @@ export default function DashboardPage() {
     if (result.ok) {
       markSearchResultJoined(userId);
       // モーダルの後ろにある設定画面のメンバー一覧（と参加メンバー数）にも、取り直さずに加える。
-      // レスポンスは3-1の1件分と同じ形
+      // レスポンスはメンバー一覧の1件分と同じ形
       setMembersResult(prev =>
         prev?.projectId === projectId && prev.members
           ? { ...prev, members: [...prev.members, result.data] }
@@ -1029,7 +1028,7 @@ export default function DashboardPage() {
     }
   };
 
-  // ロール変更（仕様書4-6、api-design.md 3-4）。プルダウンで選んだロールを、行の「保存」で確定する。
+  // ロール変更。プルダウンで選んだロールを、行の「保存」で確定する。
   // 対象のメンバーは、押されたボタンの value から読む（メンバー追加の「追加」ボタンと同じ理由）
   const handleSaveRole = async (e: React.MouseEvent<HTMLButtonElement>) => {
     const memberId = e.currentTarget.value;
@@ -1044,7 +1043,7 @@ export default function DashboardPage() {
     setSavingRoleMemberIds(prev => prev.filter(id => id !== memberId));
 
     if (result.ok) {
-      // 一覧は取り直さず、レスポンス（3-1の1件分と同じ形）でその行を置き換え、保存した選択を消す
+      // 一覧は取り直さず、レスポンス（メンバー一覧の1件分と同じ形）でその行を置き換え、保存した選択を消す
       setMembersResult(prev =>
         prev?.projectId === projectId && prev.members
           ? { ...prev, members: prev.members.map(m => (m.id === memberId ? result.data : m)) }
@@ -1082,7 +1081,7 @@ export default function DashboardPage() {
     }
   };
 
-  // メンバー削除（仕様書4-6、api-design.md 3-5）。確認モーダルの「削除する」で実行する
+  // メンバー削除。確認モーダルの「削除する」で実行する
   const handleRemoveMember = async () => {
     if (isRemovingMember || !removeTarget || !settingsProjectId) {
       return;
@@ -1130,7 +1129,7 @@ export default function DashboardPage() {
     setIsRemovingMember(false);
   };
 
-  // 自分の離脱（仕様書3-4・4-6、api-design.md 3-6）。確認モーダルの「離脱する」で実行する
+  // 自分の離脱。確認モーダルの「離脱する」で実行する
   const handleLeaveProject = async () => {
     if (isLeaving || !settingsProjectId) {
       return;
@@ -1142,7 +1141,7 @@ export default function DashboardPage() {
 
     if (result.ok) {
       // 離脱したプロジェクトは表示できなくなるため、一覧を取り直して先頭の進行中プロジェクトのダッシュボードへ移り、
-      // APIの文言で知らせる（仕様書4-6。進行中が0件なら空状態。動きはプロジェクトが見つからない場合と同じ）
+      // APIの文言で知らせる（進行中が0件なら空状態。動きはプロジェクトが見つからない場合と同じ）
       setIsLeaveModalOpen(false);
       setActiveNav('dashboard');
       reloadProjectListWithNotice([result.data.message]);
@@ -1260,7 +1259,7 @@ export default function DashboardPage() {
     return () => document.removeEventListener('click', handleClickOutside);
   }, []);
 
-  // プロジェクト切替でロールが管理者以外になったら、ナビをダッシュボードに戻す（仕様書2-4）。
+  // プロジェクト切替でロールが管理者以外になったら、ナビをダッシュボードに戻す。
   // 「プロジェクト設定」は管理者にしか表示されないため、ナビを戻す必要があるのはロールが変わったときだけ。
   // effectではなく描画中に前回のロールと比べて更新する（Reactの「propsの変化に合わせてstateを調整する」書き方）
   const [prevRole, setPrevRole] = useState(currentRole);
@@ -1271,13 +1270,13 @@ export default function DashboardPage() {
     }
   }
 
-  // 空状態の判定（仕様書5-5、api-design.md 2-3）
+  // 空状態の判定
   // - ファイル0件：進捗率は「0%」、プログレスバーは0%の状態
   // - ファイルはあるが対象テスト0件（progressRate が null）：進捗率は「—」、プログレスバーは空の状態
   const hasTestCases = summary.targetCount > 0;
   const isProgressUndefined = summary.fileCount > 0 && summary.progressRate === null;
 
-  // 進捗率はAPIの値（小数第1位まで）をそのまま表示する（api-design.md 2-3：集計はバックエンドで行う）
+  // 進捗率はAPIの値（小数第1位まで）をそのまま表示する（集計はバックエンドで行う）
   const progressPercent = summary.progressRate ?? 0;
   const progressDisplay = isProgressUndefined ? '—' : String(progressPercent);
   const showPercentSign = !isProgressUndefined;
@@ -1294,7 +1293,7 @@ export default function DashboardPage() {
     e.dataTransfer.effectAllowed = 'move';
   };
 
-  // 並び順を保存する（api-design.md 2-6。進行中プロジェクト全件の順序をまとめて送る）。
+  // 並び順を保存する（進行中プロジェクト全件の順序をまとめて送る）。
   // 保存は1件ずつ順番に送り、通信中に並び替えられたら、終わってから最新の並びだけを送る。
   // 同時に複数送ると、サーバーで書き込まれる順番が入れ替わり、古い並びが最後に残ることがあるため。
   // useCallbackにしているのは、ほかの関数から呼ぶ関数を、Reactのlint（react-hooks/purity）が
@@ -1411,7 +1410,7 @@ export default function DashboardPage() {
     }
   }, [rowMenuFile, rowMenuPosition]);
 
-  // 更新履歴の有無は一覧APIに含まれないため、取り消せるかは押す前には分けず、4-4の400で判断する
+  // 更新履歴の有無は一覧APIに含まれないため、取り消せるかは押す前には分けず、取消APIの400で判断する
   const handleUnregisterClick = () => {
     if (!rowMenuFile) return;
     setRowMenuFile(null);
@@ -1436,7 +1435,7 @@ export default function DashboardPage() {
     // そのほかの失敗では前の値のまま（取消の結果はトーストで伝えているため、通知を重ねない）
   };
 
-  // 登録取消（仕様書6-9・8-2、api-design.md 4-4）。確認モーダルの「登録を取り消す」で実行する
+  // 登録取消。確認モーダルの「登録を取り消す」で実行する
   const handleConfirmUnregister = async () => {
     if (isUnregistering || !cancelConfirmFile || !detailTargetId) {
       return;
@@ -1470,7 +1469,7 @@ export default function DashboardPage() {
 
     const message = result.messages[0];
     if (result.status === 400) {
-      // 更新履歴があり取り消せない。確認モーダルから、取消不可のモーダル（仕様書6-9）に切り替える
+      // 更新履歴があり取り消せない。確認モーダルから、取消不可のモーダルに切り替える
       setCancelConfirmFile(null);
       setCancelBlockedFile(file);
     } else if (result.status === 404) {
@@ -1509,7 +1508,7 @@ export default function DashboardPage() {
     resetUploadSelection();
   };
 
-  // Excel読込プレビュー（仕様書6-4〜6-7、api-design.md 4-2）。選んだファイルをまとめて送り、
+  // Excel読込のプレビュー。選んだファイルをまとめて送り、
   // 解析結果で確認画面を出す。新規／更新の判定と進捗の計算はサーバーが行う
   const handleFilesSelected = async (fileList: FileList) => {
     if (isPreviewing || !detailTargetId) {
@@ -1579,7 +1578,7 @@ export default function DashboardPage() {
     }
   };
 
-  // Excel読込の実行（仕様書6-8・8-1、api-design.md 4-3）。確認画面で保持している解析結果を送り返し、
+  // Excel読込の実行。確認画面で保持している解析結果を送り返し、
   // Excelは送り直さない。エラーのファイルは送らない（確認画面で「スキップされる」と伝えている）
   const handleExecuteImport = async () => {
     if (isCommitting || !detailTargetId) {
@@ -1615,7 +1614,7 @@ export default function DashboardPage() {
     }
 
     if (result.ok) {
-      // 一部・全部のファイルがエラーでも200。結果画面でファイルごとに成功／エラーを出す（仕様書6-8）
+      // 一部・全部のファイルがエラーでも200。結果画面でファイルごとに成功／エラーを出す
       setUploadResults([...result.data.files].sort((a, b) => compareFileName(a.fileName, b.fileName)));
       setUploadView('result');
       // 1件でも登録・更新されたら、一覧と全体進捗を取り直す（全体進捗は表示を残して中身だけ置き換える）
@@ -1676,7 +1675,7 @@ export default function DashboardPage() {
     setNewProjectNameError(null);
   };
 
-  // プロジェクト作成（仕様書2-1、api-design.md 2-2）
+  // プロジェクト作成
   const handleCreateProject = async () => {
     if (isCreatingProject) {
       return;
@@ -1694,12 +1693,12 @@ export default function DashboardPage() {
     if (result.ok) {
       const created = result.data;
       // 一覧は取り直さず、201の内容をタブの末尾に加える。
-      // orderは既存の最大値+1で返る（api-design.md 2-2）ため、末尾に置けば一覧APIの並びと一致する
+      // orderは既存の最大値+1で返るため、末尾に置けば一覧APIの並びと一致する
       setProjects(prev => [
         ...prev,
         { id: created.id, name: created.name, role: ROLE_LABELS[created.myRole] },
       ]);
-      // 終了済みを閲覧中に作成した場合も、作成したプロジェクトへ切り替える（仕様書2-1）
+      // 終了済みを閲覧中に作成した場合も、作成したプロジェクトへ切り替える
       setViewingArchivedProject(null);
       setActiveProjectId(created.id);
       setActiveNav('dashboard');
@@ -1719,7 +1718,7 @@ export default function DashboardPage() {
       // 空のときの「必須」と「1文字以上」のように、同じ原因で複数の文言が返ることがあるため、先頭の1件だけを出す
       setNewProjectNameError(result.messages[0]);
     } else {
-      // 入力した名前は残し、そのまま作成し直せるようにする（仕様書4-8「一部操作の失敗は短いエラー通知」）
+      // 入力した名前は残し、そのまま作成し直せるようにする
       setToast({
         id: Date.now(),
         message: result.status === 500 && result.messages.length > 0
@@ -1737,11 +1736,11 @@ export default function DashboardPage() {
     // 一覧APIでは終了済みは作成日の新しい順だが、作成日を持っていないため、直近に終了したものとして先頭に置く
     setArchivedProjects(prev => [archived, ...prev.filter(p => p.id !== archived.id)]);
     setViewingArchivedProject(archived);
-    // 終了済みでは管理者ナビ・プロジェクト設定を出さない（仕様書2-6）
+    // 終了済みでは管理者ナビ・プロジェクト設定を出さない
     setActiveNav('dashboard');
   };
 
-  // プロジェクト終了（仕様書2-6・4-7、api-design.md 2-5）
+  // プロジェクト終了
   const handleArchiveProject = async () => {
     if (isArchivingProject || !activeProject) {
       return;
@@ -1776,12 +1775,12 @@ export default function DashboardPage() {
       reloadProjectListWithNotice(result.messages);
     } else if (result.status === 403) {
       // 管理者でなくなっていた場合。詳細を取り直して最新のロールに合わせる
-      // （管理者以外になればナビはダッシュボードに戻る。仕様書2-4）
+      // （管理者以外になればナビはダッシュボードに戻る）
       setToast({ id: Date.now(), message: message ?? 'この操作を行う権限がありません。' });
       setIsTerminateModalOpen(false);
       setDetailAttempt(attempt => attempt + 1);
     } else {
-      // モーダルは閉じず、そのまま終了し直せるようにする（仕様書4-8「一部操作の失敗は短いエラー通知」）
+      // モーダルは閉じず、そのまま終了し直せるようにする
       setToast({
         id: Date.now(),
         message: result.status === 500 && message ? message : NETWORK_ERROR_MESSAGE,
@@ -1865,7 +1864,7 @@ export default function DashboardPage() {
               onDragStart={(e) => handleDragStart(e, project.id)}
               onDragEnd={handleDragEnd}
               onDragOver={(e) => handleDragOver(e, project.id)}
-              // 約20文字を超えると「…」で省略されるため、ホバーで全文を確認できるようにする（仕様書2-2）
+              // 約20文字を超えると「…」で省略されるため、ホバーで全文を確認できるようにする
               title={project.name}
             >
               {project.name}
@@ -2353,7 +2352,7 @@ export default function DashboardPage() {
 
             <div className={styles.settingsRow}>
               <div className={styles.settingsLabel}>参加メンバー数</div>
-              {/* メンバー一覧（3-1）の件数を使う。取得できるまで（取得失敗時も）は「—」 */}
+              {/* メンバー一覧の件数を使う。取得できるまで（取得失敗時も）は「—」 */}
               <div className={styles.settingsValue}>{members ? `${members.length}名` : '—'}</div>
             </div>
 
@@ -2410,7 +2409,7 @@ export default function DashboardPage() {
                 <tbody>
                   {members.map(member => {
                     const adminCount = members.filter(m => m.role === 'admin').length;
-                    // 自分の離脱は、ほかに管理者がいるときだけできる（仕様書3-4）
+                    // 自分の離脱は、ほかに管理者がいるときだけできる（管理者が0人にならないようにするため）
                     const canLeave = !(member.isMe && member.role === 'admin' && adminCount <= 1);
                     const editedRole = roleEdits[member.id];
                     const hasRoleChange = editedRole !== undefined && editedRole !== member.role;
@@ -2426,12 +2425,12 @@ export default function DashboardPage() {
                           <div className={styles.memberEmail}>{member.email}</div>
                         </td>
                         <td>
-                          {/* 管理者自身のロールは変更できない（仕様書4-6） */}
+                          {/* 管理者自身のロールは変更できない */}
                           {member.isMe && member.role === 'admin' ? (
                             <span className={`${styles.rolePill} ${styles.roleAdmin}`}>管理者</span>
                           ) : (
                             <div className={styles.roleCell}>
-                              {/* 選んだだけでは保存せず、元と違うロールを選んだときだけ「保存」を出す（仕様書4-6） */}
+                              {/* 選んだだけでは保存せず、元と違うロールを選んだときだけ「保存」を出す */}
                               <select
                                 className={styles.roleSelect}
                                 value={editedRole ?? member.role}
@@ -2716,7 +2715,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* ===== メンバー削除の確認モーダル（仕様書4-6） ===== */}
+      {/* ===== メンバー削除の確認モーダル ===== */}
       {removeTarget && (
         <div
           className={styles.modalOverlay}
@@ -2755,7 +2754,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* ===== 離脱の確認モーダル（仕様書4-6） ===== */}
+      {/* ===== 離脱の確認モーダル ===== */}
       {isLeaveModalOpen && (
         <div
           className={styles.modalOverlay}
@@ -2988,7 +2987,7 @@ export default function DashboardPage() {
             {uploadView === 'result' && (
               <div>
                 <div className={styles.modalTitle}>読み込み結果</div>
-                {/* 要約は確認画面（仕様書6-6）と同じく、エラーなし・一部エラー・全件エラーで分ける */}
+                {/* 要約は確認画面と同じく、エラーなし・一部エラー・全件エラーで分ける */}
                 {uploadFailCount === 0 && (
                   <p className={styles.modalDesc}>{uploadSuccessCount}件のファイルを読み込みました。</p>
                 )}
@@ -3020,7 +3019,7 @@ export default function DashboardPage() {
                           {f.operation === 'create' ? '新規登録' : '更新完了'}
                         </div>
                       )}
-                      {/* 楽観ロックの競合も、理由の文言が違うだけで、ほかのエラーと同じ表示（仕様書8-1） */}
+                      {/* 楽観ロックの競合も、理由の文言が違うだけで、ほかのエラーと同じ表示 */}
                       {f.result === 'error' && f.errorMessage && (
                         <div className={styles.confirmErrorReason}>{f.errorMessage}</div>
                       )}

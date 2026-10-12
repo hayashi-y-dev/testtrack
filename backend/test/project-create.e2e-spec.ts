@@ -8,7 +8,7 @@ import {
   type TestUser,
 } from './helpers/test-app.js';
 
-// プロジェクト作成API（api-design.md 2-2）の入力規則（仕様書2-2・9-1）と、
+// プロジェクト作成API（POST /projects）の入力規則と、
 // 画面が一覧を取り直さずにタブへ加えるために使う201のレスポンスを確認する
 describe('プロジェクト作成 (e2e)', () => {
   let app: INestApplication;
@@ -63,7 +63,7 @@ describe('プロジェクト作成 (e2e)', () => {
     expect((res.body as { name: string }).name).toBe(name);
   });
 
-  it('同名のプロジェクトも作成できる（仕様書2-2）', async () => {
+  it('同名のプロジェクトも作成できる', async () => {
     await agent.post('/projects').send({ name: '同名' }).expect(201);
     await agent.post('/projects').send({ name: '同名' }).expect(201);
   });
