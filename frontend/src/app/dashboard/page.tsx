@@ -1884,15 +1884,19 @@ export default function DashboardPage() {
             className={styles.archivedMenu}
             style={{ top: archivedMenuPosition.top, right: archivedMenuPosition.right }}
           >
-            {archivedProjects.map(project => (
-              <div
-                key={project.id}
-                className={styles.archivedMenuItem}
-                onClick={() => handleSelectArchivedProject(project)}
-              >
-                {project.name}
-              </div>
-            ))}
+            {archivedProjects.length === 0 ? (
+              <div className={styles.archivedMenuEmpty}>終了済みのプロジェクトはありません</div>
+            ) : (
+              archivedProjects.map(project => (
+                <div
+                  key={project.id}
+                  className={styles.archivedMenuItem}
+                  onClick={() => handleSelectArchivedProject(project)}
+                >
+                  {project.name}
+                </div>
+              ))
+            )}
           </div>
         )}
       </div>

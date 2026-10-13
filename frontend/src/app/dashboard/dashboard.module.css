@@ -1623,6 +1623,13 @@
   background: var(--surface-2);
 }
 
+/* 終了済みが0件のとき。押せる項目ではないので、灰色の文字にしてホバーでも変えない */
+.archivedMenuEmpty {
+  font-size: 12.5px;
+  color: var(--text-faint);
+  padding: 9px 12px;
+}
+
 /* ===== ローディング状態 ===== */
 .loadingCard {
   display: flex;
