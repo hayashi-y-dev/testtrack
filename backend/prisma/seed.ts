@@ -1,23 +1,37 @@
-import { PrismaClient, ProjectStatus, ProjectRole } from '@prisma/client';
+// デモデータを初期状態に戻す（既存のデータをすべて消して作り直す）。
+// 公開しているデモ環境では、EC2の起動のたびに実行し、前日に変えられたデータを元に戻す
+// （@prisma/client の読み込み時に backend/.env が process.env に入る。アプリ本体と同じ仕組み）
+import { Prisma, PrismaClient, ProjectStatus, ProjectRole } from '@prisma/client';
 import bcrypt from 'bcrypt';
+import { resolveSeedPassword, waitForDatabase } from './seed-config.js';
 
 const prisma = new PrismaClient();
 
-// 開発用共通パスワード。パスワード再設定の規則（15文字以上64文字以下）を満たす値にして、
-// 再設定画面でもこの値を設定できるようにする
-const DEV_PASSWORD = 'Password1234!Demo';
 const SALT_ROUNDS = 10;
 
-async function main() {
-  console.log('Seeding database...');
+// 消して作り直す処理の時間の上限。Prismaの既定（5秒）では足りないことがあるため
+const RESET_TIMEOUT_MS = 60_000;
 
-  // パスワードハッシュを生成
-  const passwordHash = await bcrypt.hash(DEV_PASSWORD, SALT_ROUNDS);
+/**
+ * 既存のデータをすべて消す。セッションも消し、消したユーザーのログイン状態が残らないようにする。
+ * 外部キーの参照先より先に、参照元を消す
+ */
+async function clearAllData(tx: Prisma.TransactionClient) {
+  await tx.progressSnapshot.deleteMany();
+  await tx.testFile.deleteMany();
+  await tx.projectMember.deleteMany();
+  await tx.project.deleteMany();
+  await tx.passwordResetToken.deleteMany();
+  await tx.session.deleteMany();
+  await tx.user.deleteMany();
+}
+
+async function createDemoData(tx: Prisma.TransactionClient, passwordHash: string) {
 
   // =========================================================================
   // ユーザー（5人）
   // =========================================================================
-  const yamada = await prisma.user.create({
+  const yamada = await tx.user.create({
     data: {
       email: 'yamada@example.com',
       passwordHash,
@@ -25,7 +39,7 @@ async function main() {
     },
   });
 
-  const sato = await prisma.user.create({
+  const sato = await tx.user.create({
     data: {
       email: 'sato@example.com',
       passwordHash,
@@ -33,7 +47,7 @@ async function main() {
     },
   });
 
-  const tanaka = await prisma.user.create({
+  const tanaka = await tx.user.create({
     data: {
       email: 'tanaka@example.com',
       passwordHash,
@@ -41,7 +55,7 @@ async function main() {
     },
   });
 
-  const ito = await prisma.user.create({
+  const ito = await tx.user.create({
     data: {
       email: 'ito@example.com',
       passwordHash,
@@ -49,7 +63,7 @@ async function main() {
     },
   });
 
-  const nakamura = await prisma.user.create({
+  const nakamura = await tx.user.create({
     data: {
       email: 'nakamura@example.com',
       passwordHash,
@@ -62,28 +76,28 @@ async function main() {
   // =========================================================================
   // プロジェクト（4件）
   // =========================================================================
-  const ecProject = await prisma.project.create({
+  const ecProject = await tx.project.create({
     data: {
       name: 'ECサイトリニューアル',
       status: ProjectStatus.active,
     },
   });
 
-  const memberProject = await prisma.project.create({
+  const memberProject = await tx.project.create({
     data: {
       name: '会員基盤刷新',
       status: ProjectStatus.active,
     },
   });
 
-  const portalProject = await prisma.project.create({
+  const portalProject = await tx.project.create({
     data: {
       name: '社内ポータル改修',
       status: ProjectStatus.active,
     },
   });
 
-  const legacyProject = await prisma.project.create({
+  const legacyProject = await tx.project.create({
     data: {
       name: '旧基幹システム保守',
       status: ProjectStatus.archived,
@@ -98,35 +112,37 @@ async function main() {
   // displayOrder（タブの表示順）は、進行中プロジェクトのメンバーには必ず入れ、終了済みはNULLにする。
   // 値はユーザーごとに0から振り、順番は作成日の新しい順
   // （社内ポータル改修→会員基盤刷新→ECサイトリニューアル）とする。
+  // 山田さんだけは、ログイン直後にファイルの並んだ管理者のダッシュボードが開くよう、
+  // ECサイトリニューアル→社内ポータル改修→会員基盤刷新（管理者→テスター→閲覧者）にする
   // ECサイトリニューアル: 山田(admin), 佐藤(tester), 伊藤(viewer)
-  await prisma.projectMember.createMany({
+  await tx.projectMember.createMany({
     data: [
-      { userId: yamada.id, projectId: ecProject.id, role: ProjectRole.admin, displayOrder: 2 },
+      { userId: yamada.id, projectId: ecProject.id, role: ProjectRole.admin, displayOrder: 0 },
       { userId: sato.id, projectId: ecProject.id, role: ProjectRole.tester, displayOrder: 2 },
       { userId: ito.id, projectId: ecProject.id, role: ProjectRole.viewer, displayOrder: 0 },
     ],
   });
 
   // 会員基盤刷新: 佐藤(admin), 田中(tester), 山田(viewer)
-  await prisma.projectMember.createMany({
+  await tx.projectMember.createMany({
     data: [
       { userId: sato.id, projectId: memberProject.id, role: ProjectRole.admin, displayOrder: 1 },
       { userId: tanaka.id, projectId: memberProject.id, role: ProjectRole.tester, displayOrder: 1 },
-      { userId: yamada.id, projectId: memberProject.id, role: ProjectRole.viewer, displayOrder: 1 },
+      { userId: yamada.id, projectId: memberProject.id, role: ProjectRole.viewer, displayOrder: 2 },
     ],
   });
 
   // 社内ポータル改修: 佐藤(admin), 田中(admin), 山田(tester)
-  await prisma.projectMember.createMany({
+  await tx.projectMember.createMany({
     data: [
       { userId: sato.id, projectId: portalProject.id, role: ProjectRole.admin, displayOrder: 0 },
       { userId: tanaka.id, projectId: portalProject.id, role: ProjectRole.admin, displayOrder: 0 },
-      { userId: yamada.id, projectId: portalProject.id, role: ProjectRole.tester, displayOrder: 0 },
+      { userId: yamada.id, projectId: portalProject.id, role: ProjectRole.tester, displayOrder: 1 },
     ],
   });
 
   // 旧基幹システム保守: 中村(admin), 山田(tester)。終了済みのためdisplayOrderはNULL（指定しない）
-  await prisma.projectMember.createMany({
+  await tx.projectMember.createMany({
     data: [
       { userId: nakamura.id, projectId: legacyProject.id, role: ProjectRole.admin },
       { userId: yamada.id, projectId: legacyProject.id, role: ProjectRole.tester },
@@ -158,7 +174,7 @@ async function main() {
   ];
 
   for (const file of ecFiles) {
-    const testFile = await prisma.testFile.create({
+    const testFile = await tx.testFile.create({
       data: {
         projectId: ecProject.id,
         name: file.name,
@@ -174,7 +190,7 @@ async function main() {
     });
 
     // 各ファイルにSnapshot1件
-    await prisma.progressSnapshot.create({
+    await tx.progressSnapshot.create({
       data: {
         testFileId: testFile.id,
         targetCount: file.targetCount,
@@ -189,7 +205,7 @@ async function main() {
   }
 
   // No.3: 決済フロー確認用テスト仕様書_第2版.xlsx（version=2、Snapshot2件）
-  const paymentFile = await prisma.testFile.create({
+  const paymentFile = await tx.testFile.create({
     data: {
       projectId: ecProject.id,
       name: '決済フロー確認用テスト仕様書_第2版.xlsx',
@@ -205,7 +221,7 @@ async function main() {
   });
 
   // Snapshot1件目（初回登録）
-  await prisma.progressSnapshot.create({
+  await tx.progressSnapshot.create({
     data: {
       testFileId: paymentFile.id,
       targetCount: 25,
@@ -219,7 +235,7 @@ async function main() {
   });
 
   // Snapshot2件目（更新後＝現在のTestFile本体と同じ値）
-  await prisma.progressSnapshot.create({
+  await tx.progressSnapshot.create({
     data: {
       testFileId: paymentFile.id,
       targetCount: 24,
@@ -243,7 +259,7 @@ async function main() {
   // 社内ポータル改修（1件）
   // -------------------------------------------------------------------------
   // 全行が「-」対象外のケース（target_count=0, excluded_count=5）
-  const portalFile = await prisma.testFile.create({
+  const portalFile = await tx.testFile.create({
     data: {
       projectId: portalProject.id,
       name: '契約管理機能テスト.xlsx',
@@ -257,7 +273,7 @@ async function main() {
     },
   });
 
-  await prisma.progressSnapshot.create({
+  await tx.progressSnapshot.create({
     data: {
       testFileId: portalFile.id,
       targetCount: 0,
@@ -281,7 +297,7 @@ async function main() {
   ];
 
   for (const file of legacyFiles) {
-    const testFile = await prisma.testFile.create({
+    const testFile = await tx.testFile.create({
       data: {
         projectId: legacyProject.id,
         name: file.name,
@@ -296,7 +312,7 @@ async function main() {
       },
     });
 
-    await prisma.progressSnapshot.create({
+    await tx.progressSnapshot.create({
       data: {
         testFileId: testFile.id,
         targetCount: file.targetCount,
@@ -312,6 +328,25 @@ async function main() {
 
   console.log('Created 3 test files for 旧基幹システム保守');
 
+}
+
+async function main() {
+  // パスワードを先に確かめる。使えない値なら、DBに触らずに止める
+  const { password, source } = resolveSeedPassword(process.env);
+  console.log(source === 'env' ? 'Demo password: from DEMO_USER_PASSWORD' : 'Demo password: development default');
+
+  await waitForDatabase(() => prisma.$queryRaw`SELECT 1`);
+  const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
+
+  // 消して作り直す処理を1つのトランザクションにする。途中で失敗したら元に戻り、前のデータが残る
+  console.log('Resetting demo data...');
+  await prisma.$transaction(
+    async (tx) => {
+      await clearAllData(tx);
+      await createDemoData(tx, passwordHash);
+    },
+    { timeout: RESET_TIMEOUT_MS },
+  );
   console.log('Seeding completed!');
 }
 
